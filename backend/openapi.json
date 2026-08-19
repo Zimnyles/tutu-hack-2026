@@ -1,0 +1,1718 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Открывай API",
+    "version": "1.0.0",
+    "description": "HTTP API сервиса «Открывай». Аутентификация выполняется cookie ow_session. Для изменяющих запросов в аутентифицированной зоне также требуется заголовок X-CSRF-Token, равный значению cookie ow_csrf."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8080",
+      "description": "Локальный backend"
+    }
+  ],
+  "tags": [
+    { "name": "Health", "description": "Проверки состояния сервиса" },
+    { "name": "Configuration", "description": "Публичная конфигурация клиента" },
+    { "name": "Auth", "description": "Регистрация, вход и сессия" },
+    { "name": "Profile", "description": "Профиль и onboarding" },
+    { "name": "World", "description": "Карта и территории" },
+    { "name": "Events", "description": "События в городах" },
+    { "name": "Recommendations", "description": "Подбор направлений" },
+    { "name": "Trips", "description": "Поездки и оформление" },
+    { "name": "Rewards", "description": "Баланс и достижения" },
+    { "name": "Community", "description": "Сезоны, рейтинги и гильдии" },
+    { "name": "Admin", "description": "Demo-симулятор для пользователя с ролью demo_admin" }
+  ],
+  "paths": {
+    "/healthz": {
+      "get": {
+        "tags": ["Health"],
+        "summary": "Проверить, что процесс запущен",
+        "operationId": "getLiveness",
+        "responses": {
+          "200": { "$ref": "#/components/responses/HealthOk" }
+        }
+      }
+    },
+    "/readyz": {
+      "get": {
+        "tags": ["Health"],
+        "summary": "Проверить готовность зависимостей",
+        "operationId": "getReadiness",
+        "responses": {
+          "200": { "$ref": "#/components/responses/ReadyOk" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/v1/config": {
+      "get": {
+        "tags": ["Configuration"],
+        "summary": "Получить публичные настройки приложения",
+        "operationId": "getPublicConfig",
+        "responses": {
+          "200": {
+            "description": "Публичные настройки",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/PublicSettings" } }
+            }
+          },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/v1/auth/register": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Зарегистрироваться",
+        "operationId": "register",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/RegisterRequest" } }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Пользователь создан; сервер устанавливает cookies ow_session и ow_csrf",
+            "headers": {
+              "Set-Cookie": { "schema": { "type": "string" }, "description": "Сессионная и CSRF cookies" }
+            },
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/UserResponse" } }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "429": { "$ref": "#/components/responses/RateLimited" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/v1/auth/login": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Войти",
+        "operationId": "login",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/LoginRequest" } }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Успешный вход; сервер устанавливает cookies ow_session и ow_csrf",
+            "headers": {
+              "Set-Cookie": { "schema": { "type": "string" }, "description": "Сессионная и CSRF cookies" }
+            },
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/UserResponse" } }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "429": { "$ref": "#/components/responses/RateLimited" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/v1/auth/me": {
+      "get": {
+        "tags": ["Auth"],
+        "summary": "Получить текущего пользователя",
+        "operationId": "getCurrentUser",
+        "security": [{ "cookieAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Текущий пользователь",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/UserResponse" } }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Завершить текущую сессию",
+        "operationId": "logout",
+        "security": [{ "cookieAuth": [], "csrfToken": [] }],
+        "responses": {
+          "204": { "description": "Сессия завершена, cookies удалены" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/v1/profile": {
+      "get": {
+        "tags": ["Profile"],
+        "summary": "Получить профиль, прогресс и баланс",
+        "operationId": "getProfile",
+        "security": [{ "cookieAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Профиль",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ProfileResponse" } }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/v1/profile/preferences": {
+      "put": {
+        "tags": ["Profile"],
+        "summary": "Сохранить предпочтения",
+        "operationId": "savePreferences",
+        "security": [{ "cookieAuth": [], "csrfToken": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/Preferences" } }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Обновлённый пользователь",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/UserResponse" } }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/v1/profile/onboarding/complete": {
+      "post": {
+        "tags": ["Profile"],
+        "summary": "Завершить onboarding",
+        "operationId": "completeOnboarding",
+        "security": [{ "cookieAuth": [], "csrfToken": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/OnboardingRequest" } }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Обновлённый пользователь",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/UserResponse" } }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/v1/profile/travel-visibility": {
+      "put": {
+        "tags": ["Profile"],
+        "summary": "Изменить видимость поездок",
+        "operationId": "setTravelVisibility",
+        "security": [{ "cookieAuth": [], "csrfToken": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/VisibilityRequest" } }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Обновлённый пользователь",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/UserResponse" } }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/v1/integrations/tutu/demo-sync": {
+      "post": {
+        "tags": ["Profile"],
+        "summary": "Загрузить demo-историю поездок",
+        "operationId": "syncDemoHistory",
+        "security": [{ "cookieAuth": [], "csrfToken": [] }],
+        "responses": {
+          "200": {
+            "description": "История синхронизирована",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/DemoSyncResponse" } }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/v1/world/bootstrap": {
+      "get": {
+        "tags": ["World"],
+        "summary": "Получить начальное состояние приложения",
+        "operationId": "getWorldBootstrap",
+        "security": [{ "cookieAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Состояние мира и пользователя",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/BootstrapResponse" } }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/v1/world/progress": {
+      "get": {
+        "tags": ["World"],
+        "summary": "Получить прогресс открытия мира",
+        "operationId": "getWorldProgress",
+        "security": [{ "cookieAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Прогресс",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Progress" } }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/v1/territories": {
+      "get": {
+        "tags": ["World"],
+        "summary": "Получить список территорий",
+        "operationId": "listTerritories",
+        "security": [{ "cookieAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Территории",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/TerritoryListResponse" } }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/v1/territories/{id}": {
+      "get": {
+        "tags": ["World"],
+        "summary": "Получить территорию",
+        "operationId": "getTerritory",
+        "security": [{ "cookieAuth": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": {
+          "200": {
+            "description": "Территория",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/TerritoryResponse" } }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "422": { "$ref": "#/components/responses/ValidationError" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/v1/territories/{id}/events": {
+      "get": {
+        "tags": ["Events"],
+        "summary": "Получить события территории",
+        "operationId": "listTerritoryEvents",
+        "security": [{ "cookieAuth": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/Id" },
+          { "$ref": "#/components/parameters/DateFromQuery" },
+          { "$ref": "#/components/parameters/DateToQuery" },
+          { "name": "category", "in": "query", "schema": { "type": "string", "maxLength": 64 } },
+          { "name": "price_max", "in": "query", "schema": { "type": "integer", "minimum": 0, "maximum": 5000000, "default": 0 } },
+          { "name": "age_rating", "in": "query", "schema": { "type": "string", "maxLength": 64 } },
+          { "name": "availability", "in": "query", "schema": { "type": "string", "maxLength": 64 } }
+        ],
+        "responses": {
+          "200": {
+            "description": "События",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/EventListResponse" } }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "422": { "$ref": "#/components/responses/ValidationError" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/v1/territories/{id}/events/refresh": {
+      "post": {
+        "tags": ["Events"],
+        "summary": "Обновить каталог событий территории",
+        "operationId": "refreshTerritoryEvents",
+        "security": [{ "cookieAuth": [], "csrfToken": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/Id" },
+          { "$ref": "#/components/parameters/DateFromQuery" },
+          { "$ref": "#/components/parameters/DateToQuery" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Обновлённые события",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/EventRefreshResponse" } }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "422": { "$ref": "#/components/responses/ValidationError" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/v1/events/{id}": {
+      "get": {
+        "tags": ["Events"],
+        "summary": "Получить событие",
+        "operationId": "getEvent",
+        "security": [{ "cookieAuth": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": {
+          "200": {
+            "description": "Событие",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/EventResponse" } }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "422": { "$ref": "#/components/responses/ValidationError" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/v1/events/{id}/plan-trip": {
+      "post": {
+        "tags": ["Events", "Recommendations"],
+        "summary": "Запустить подбор поездки на событие",
+        "operationId": "planEventTrip",
+        "security": [{ "cookieAuth": [], "csrfToken": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/PlanEventTripRequest" } }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Подбор запущен",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Recommendation" } }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "429": { "$ref": "#/components/responses/RateLimited" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/v1/recommendations": {
+      "post": {
+        "tags": ["Recommendations"],
+        "summary": "Запустить подбор направлений",
+        "operationId": "createRecommendation",
+        "security": [{ "cookieAuth": [], "csrfToken": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/CreateRecommendationRequest" } }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Подбор запущен",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Recommendation" } }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "422": { "$ref": "#/components/responses/UnprocessableEntity" },
+          "429": { "$ref": "#/components/responses/RateLimited" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/v1/recommendations/personal": {
+      "get": {
+        "tags": ["Recommendations"],
+        "summary": "Получить последнюю персональную рекомендацию",
+        "operationId": "getPersonalRecommendation",
+        "security": [{ "cookieAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Персональная рекомендация",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Recommendation" } }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/v1/recommendations/{id}": {
+      "get": {
+        "tags": ["Recommendations"],
+        "summary": "Получить подбор",
+        "operationId": "getRecommendation",
+        "security": [{ "cookieAuth": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": {
+          "200": {
+            "description": "Рекомендация",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Recommendation" } }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "422": { "$ref": "#/components/responses/ValidationError" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/v1/recommendations/{id}/events": {
+      "get": {
+        "tags": ["Recommendations"],
+        "summary": "Подписаться на изменения подбора через SSE",
+        "description": "Поток длится до терминального статуса или не более 50 секунд. Событие recommendation содержит JSON объекта Recommendation; событие error содержит код ошибки.",
+        "operationId": "streamRecommendationEvents",
+        "security": [{ "cookieAuth": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": {
+          "200": {
+            "description": "SSE-поток",
+            "content": {
+              "text/event-stream": {
+                "schema": { "type": "string" },
+                "example": "id: 1724060000000000000\nevent: recommendation\ndata: {\"id\":\"690a7bd0-75be-4e6f-8a1a-b938c514158c\",\"status\":\"processing\",\"stage\":\"transport_search\"}\n\n"
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "422": { "$ref": "#/components/responses/ValidationError" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/v1/recommendations/{id}/select": {
+      "post": {
+        "tags": ["Recommendations", "Trips"],
+        "summary": "Выбрать вариант и создать поездку",
+        "operationId": "selectRecommendationOption",
+        "security": [{ "cookieAuth": [], "csrfToken": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/SelectOptionRequest" } }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Поездка создана",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/TripResponse" } }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "422": { "$ref": "#/components/responses/ValidationError" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/v1/trips": {
+      "get": {
+        "tags": ["Trips"],
+        "summary": "Получить поездки пользователя",
+        "operationId": "listTrips",
+        "security": [{ "cookieAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Поездки",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/TripListResponse" } }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/v1/trips/{id}/checkout": {
+      "post": {
+        "tags": ["Trips"],
+        "summary": "Создать ссылку на оформление поездки",
+        "operationId": "createTripCheckout",
+        "security": [{ "cookieAuth": [], "csrfToken": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": {
+          "200": {
+            "description": "Данные оформления",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/CheckoutResponse" } }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "422": { "$ref": "#/components/responses/ValidationError" },
+          "502": { "$ref": "#/components/responses/BadGateway" },
+          "504": { "$ref": "#/components/responses/GatewayTimeout" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/v1/trips/{id}/simulate-arrival": {
+      "post": {
+        "tags": ["Trips"],
+        "summary": "Симулировать прибытие и начислить награду",
+        "operationId": "simulateTripArrival",
+        "security": [{ "cookieAuth": [], "csrfToken": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/Id" },
+          { "$ref": "#/components/parameters/IdempotencyKey" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Результат прибытия",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ArrivalResponse" } }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "422": { "$ref": "#/components/responses/ValidationError" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/v1/rewards/ledger": {
+      "get": {
+        "tags": ["Rewards"],
+        "summary": "Получить баланс и историю наград",
+        "operationId": "getRewardsLedger",
+        "security": [{ "cookieAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Баланс и проводки",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/LedgerResponse" } }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/v1/rewards/promo-codes": {
+      "get": {
+        "tags": ["Rewards"],
+        "summary": "Получить промокоды за открытые города",
+        "operationId": "listPromoCodes",
+        "security": [{ "cookieAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Промокоды пользователя",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/PromoCodeListResponse" } }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/v1/achievements": {
+      "get": {
+        "tags": ["Rewards"],
+        "summary": "Получить достижения",
+        "operationId": "listAchievements",
+        "security": [{ "cookieAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Достижения",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/AchievementListResponse" } }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/v1/season/current": {
+      "get": {
+        "tags": ["Community"],
+        "summary": "Получить текущий сезон",
+        "operationId": "getCurrentSeason",
+        "security": [{ "cookieAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Текущий сезон",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/SeasonResponse" } }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/v1/leaderboard": {
+      "get": {
+        "tags": ["Community"],
+        "summary": "Получить рейтинг",
+        "operationId": "getLeaderboard",
+        "security": [{ "cookieAuth": [] }],
+        "parameters": [
+          { "name": "scope", "in": "query", "schema": { "type": "string", "enum": ["league", "guild", "global"], "default": "league" } },
+          { "name": "period", "in": "query", "schema": { "type": "string", "enum": ["week", "month", "season"], "default": "month" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Рейтинг",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Leaderboard" } }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/v1/guild": {
+      "get": {
+        "tags": ["Community"],
+        "summary": "Получить предложенную или текущую гильдию",
+        "operationId": "getGuild",
+        "security": [{ "cookieAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Гильдия",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/GuildResponse" } }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/v1/guild/join": {
+      "post": {
+        "tags": ["Community"],
+        "summary": "Вступить в гильдию",
+        "operationId": "joinGuild",
+        "security": [{ "cookieAuth": [], "csrfToken": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/JoinGuildRequest" } }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Гильдия после вступления",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/GuildResponse" } }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/v1/guild/leave": {
+      "post": {
+        "tags": ["Community"],
+        "summary": "Выйти из гильдии",
+        "operationId": "leaveGuild",
+        "security": [{ "cookieAuth": [], "csrfToken": [] }],
+        "responses": {
+          "204": { "description": "Пользователь вышел из гильдии" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/v1/travel-cohorts/{territoryId}": {
+      "get": {
+        "tags": ["Community"],
+        "summary": "Получить агрегат попутчиков по территории",
+        "operationId": "getTravelCohort",
+        "security": [{ "cookieAuth": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/TerritoryId" }],
+        "responses": {
+          "200": {
+            "description": "Агрегированные данные попутчиков",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/TravelCohortResponse" } }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "422": { "$ref": "#/components/responses/ValidationError" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/v1/admin/overview": {
+      "get": {
+        "tags": ["Admin"],
+        "summary": "Получить сводку demo-симулятора",
+        "operationId": "getAdminOverview",
+        "security": [{ "cookieAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Сводка",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/AdminOverview" } }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/v1/admin/users": {
+      "get": {
+        "tags": ["Admin"],
+        "summary": "Найти demo-пользователей",
+        "operationId": "listAdminUsers",
+        "security": [{ "cookieAuth": [] }],
+        "parameters": [
+          { "name": "query", "in": "query", "schema": { "type": "string", "maxLength": 120 } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Пользователи",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/AdminUserListResponse" } }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/v1/admin/scenarios": {
+      "get": {
+        "tags": ["Admin"],
+        "summary": "Получить demo-сценарии",
+        "operationId": "listAdminScenarios",
+        "security": [{ "cookieAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Сценарии",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/DemoScenarioListResponse" } }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/v1/admin/simulations": {
+      "post": {
+        "tags": ["Admin"],
+        "summary": "Запустить demo-симуляцию",
+        "operationId": "executeAdminSimulation",
+        "security": [{ "cookieAuth": [], "csrfToken": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/IdempotencyKey" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/ExecuteSimulationRequest" } }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Симуляция создана",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/AdminSimulation" } }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/v1/admin/simulations/{id}": {
+      "get": {
+        "tags": ["Admin"],
+        "summary": "Получить demo-симуляцию",
+        "operationId": "getAdminSimulation",
+        "security": [{ "cookieAuth": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": {
+          "200": {
+            "description": "Симуляция",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/AdminSimulation" } }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/v1/admin/audit-log": {
+      "get": {
+        "tags": ["Admin"],
+        "summary": "Получить журнал действий симулятора",
+        "operationId": "getAdminAuditLog",
+        "security": [{ "cookieAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Журнал действий",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/AdminAuditListResponse" } }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "cookieAuth": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "ow_session",
+        "description": "Сессионная cookie, которую сервер выдаёт при регистрации или входе"
+      },
+      "csrfToken": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-CSRF-Token",
+        "description": "Значение должно совпадать с cookie ow_csrf"
+      }
+    },
+    "parameters": {
+      "Id": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string", "format": "uuid" }
+      },
+      "TerritoryId": {
+        "name": "territoryId",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string", "format": "uuid" }
+      },
+      "DateFromQuery": {
+        "name": "date_from",
+        "in": "query",
+        "schema": { "type": "string", "format": "date" }
+      },
+      "DateToQuery": {
+        "name": "date_to",
+        "in": "query",
+        "schema": { "type": "string", "format": "date" }
+      },
+      "IdempotencyKey": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": true,
+        "schema": { "type": "string", "minLength": 8, "maxLength": 128 }
+      }
+    },
+    "responses": {
+      "HealthOk": {
+        "description": "Процесс запущен",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/HealthStatus" } } }
+      },
+      "ReadyOk": {
+        "description": "Сервис готов",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReadyStatus" } } }
+      },
+      "BadRequest": {
+        "description": "Некорректный запрос",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+      },
+      "Unauthorized": {
+        "description": "Требуется вход или учётные данные неверны",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+      },
+      "Forbidden": {
+        "description": "CSRF-токен неверен или недостаточно прав",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+      },
+      "NotFound": {
+        "description": "Запись не найдена",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+      },
+      "Conflict": {
+        "description": "Конфликт или недопустимое текущее состояние",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+      },
+      "ValidationError": {
+        "description": "Ошибка валидации параметров",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+      },
+      "UnprocessableEntity": {
+        "description": "Не удалось подобрать направления или предложения",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+      },
+      "RateLimited": {
+        "description": "Превышен лимит запросов",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+      },
+      "BadGateway": {
+        "description": "Внешний сервис оформления недоступен",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+      },
+      "GatewayTimeout": {
+        "description": "Внешний сервис не ответил вовремя",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+      },
+      "InternalError": {
+        "description": "Внутренняя ошибка",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+      }
+    },
+    "schemas": {
+      "HealthStatus": {
+        "type": "object",
+        "required": ["status", "demo_mode"],
+        "properties": {
+          "status": { "type": "string", "enum": ["ok"] },
+          "demo_mode": { "type": "boolean" }
+        }
+      },
+      "ReadyStatus": {
+        "type": "object",
+        "required": ["status", "demo_mode"],
+        "properties": {
+          "status": { "type": "string", "enum": ["ready"] },
+          "demo_mode": { "type": "boolean" }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": ["code", "message", "request_id", "details"],
+            "properties": {
+              "code": { "type": "string", "example": "VALIDATION_ERROR" },
+              "message": { "type": "string", "example": "Проверьте данные запроса" },
+              "request_id": { "type": "string" },
+              "details": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        }
+      },
+      "RegisterRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["email", "password", "display_name"],
+        "properties": {
+          "email": { "type": "string", "format": "email", "maxLength": 254 },
+          "password": { "type": "string", "format": "password", "minLength": 8, "maxLength": 128, "writeOnly": true },
+          "display_name": { "type": "string", "minLength": 2, "maxLength": 64 }
+        }
+      },
+      "LoginRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["email", "password"],
+        "properties": {
+          "email": { "type": "string", "format": "email", "maxLength": 254 },
+          "password": { "type": "string", "format": "password", "minLength": 1, "maxLength": 128, "writeOnly": true }
+        }
+      },
+      "Preferences": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["themes", "transport_modes", "max_travel_minutes", "typical_budget", "trip_duration_days", "spontaneity", "avoid"],
+        "properties": {
+          "themes": { "type": "array", "maxItems": 12, "uniqueItems": true, "items": { "type": "string", "enum": ["nature", "architecture", "food", "history", "events", "calm", "active", "unusual"] } },
+          "transport_modes": { "type": "array", "minItems": 1, "maxItems": 8, "uniqueItems": true, "items": { "$ref": "#/components/schemas/TransportMode" } },
+          "max_travel_minutes": { "type": "integer", "minimum": 30, "maximum": 4320 },
+          "typical_budget": { "type": "integer", "minimum": 1000, "maximum": 2000000 },
+          "trip_duration_days": { "type": "integer", "minimum": 1, "maximum": 30 },
+          "spontaneity": { "type": "integer", "minimum": 1, "maximum": 5 },
+          "avoid": { "type": "array", "maxItems": 12, "uniqueItems": true, "items": { "type": "string", "maxLength": 32 } }
+        }
+      },
+      "TransportMode": {
+        "type": "string",
+        "enum": ["railway", "bus", "avia", "etrain"]
+      },
+      "User": {
+        "type": "object",
+        "required": ["id", "email", "display_name", "home_city_id", "role", "demo", "onboarding_completed", "preferences", "travel_visibility"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "email": { "type": "string", "format": "email" },
+          "display_name": { "type": "string" },
+          "home_city_id": { "type": "string", "description": "UUID или пустая строка до завершения onboarding" },
+          "role": { "type": "string", "example": "user" },
+          "demo": { "type": "boolean" },
+          "onboarding_completed": { "type": "boolean" },
+          "preferences": { "$ref": "#/components/schemas/Preferences" },
+          "travel_visibility": { "type": "string", "enum": ["private", "aggregate"] }
+        }
+      },
+      "UserResponse": {
+        "type": "object",
+        "required": ["user"],
+        "properties": { "user": { "$ref": "#/components/schemas/User" } }
+      },
+      "OnboardingRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["home_city_id"],
+        "properties": { "home_city_id": { "type": "string", "format": "uuid" } }
+      },
+      "VisibilityRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["visibility"],
+        "properties": { "visibility": { "type": "string", "enum": ["private", "aggregate"] } }
+      },
+      "Progress": {
+        "type": "object",
+        "required": ["opened", "total", "world_percent"],
+        "properties": {
+          "opened": { "type": "integer", "minimum": 0 },
+          "total": { "type": "integer", "minimum": 0 },
+          "world_percent": { "type": "number", "format": "double", "minimum": 0, "maximum": 100 }
+        }
+      },
+      "ProfileResponse": {
+        "type": "object",
+        "required": ["user", "progress", "balance"],
+        "properties": {
+          "user": { "$ref": "#/components/schemas/User" },
+          "progress": { "$ref": "#/components/schemas/Progress" },
+          "balance": { "type": "integer" }
+        }
+      },
+      "OnboardingOption": {
+        "type": "object",
+        "required": ["code", "label"],
+        "properties": {
+          "code": { "type": "string" },
+          "label": { "type": "string" },
+          "icon": { "type": "string" },
+          "description": { "type": "string" }
+        },
+        "additionalProperties": true
+      },
+      "OnboardingSettings": {
+        "type": "object",
+        "properties": {
+          "themes": { "type": "array", "items": { "$ref": "#/components/schemas/OnboardingOption" } },
+          "transport_modes": { "type": "array", "items": { "$ref": "#/components/schemas/OnboardingOption" } },
+          "travel_time_options": { "type": "array", "items": { "type": "integer" } },
+          "budget_min": { "type": "integer" },
+          "budget_max": { "type": "integer" },
+          "budget_step": { "type": "integer" }
+        },
+        "additionalProperties": true
+      },
+      "WorkflowStage": {
+        "type": "object",
+        "required": ["code", "label"],
+        "properties": {
+          "code": { "type": "string" },
+          "label": { "type": "string" }
+        }
+      },
+      "TerritoryReference": {
+        "type": "object",
+        "required": ["id", "name", "region"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "name": { "type": "string" },
+          "region": { "type": "string" }
+        }
+      },
+      "PublicSettings": {
+        "type": "object",
+        "required": ["onboarding", "recommendation_stages", "privacy_threshold", "home_cities"],
+        "properties": {
+          "onboarding": { "$ref": "#/components/schemas/OnboardingSettings" },
+          "recommendation_stages": { "type": "array", "items": { "$ref": "#/components/schemas/WorkflowStage" } },
+          "privacy_threshold": { "type": "integer", "minimum": 0 },
+          "home_cities": { "type": "array", "items": { "$ref": "#/components/schemas/TerritoryReference" } }
+        }
+      },
+      "Territory": {
+        "type": "object",
+        "required": ["id", "name", "region", "latitude", "longitude", "state", "level", "tags", "rarity", "reward", "promo_percent", "description", "image_tone"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "name": { "type": "string" },
+          "region": { "type": "string" },
+          "latitude": { "type": "number", "format": "double", "minimum": -90, "maximum": 90 },
+          "longitude": { "type": "number", "format": "double", "minimum": -180, "maximum": 180 },
+          "state": { "type": "string", "enum": ["locked", "suggested", "planned", "arrived"] },
+          "level": { "type": "integer" },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "rarity": { "type": "integer" },
+          "reward": { "type": "integer" },
+          "promo_percent": { "type": "integer", "minimum": 0, "maximum": 100 },
+          "description": { "type": "string" },
+          "image_tone": { "type": "string" }
+        }
+      },
+      "PromoCode": {
+        "type": "object",
+        "required": ["id", "code", "city_id", "city_name", "discount_percent", "status", "reason_code", "issued_at", "expires_at"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "code": { "type": "string" },
+          "city_id": { "type": "string", "format": "uuid" },
+          "city_name": { "type": "string" },
+          "discount_percent": { "type": "integer", "minimum": 1, "maximum": 100 },
+          "status": { "type": "string", "enum": ["active", "used", "expired"] },
+          "reason_code": { "type": "string" },
+          "issued_at": { "type": "string", "format": "date-time" },
+          "expires_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "PromoCodeListResponse": {
+        "type": "object",
+        "required": ["items"],
+        "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/PromoCode" } } }
+      },
+      "TerritoryListResponse": {
+        "type": "object",
+        "required": ["items"],
+        "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/Territory" } } }
+      },
+      "TerritoryResponse": {
+        "type": "object",
+        "required": ["territory"],
+        "properties": { "territory": { "$ref": "#/components/schemas/Territory" } }
+      },
+      "DemoSyncResponse": {
+        "type": "object",
+        "required": ["demo", "source", "territories"],
+        "properties": {
+          "demo": { "type": "boolean", "enum": [true] },
+          "source": { "type": "string", "enum": ["prepared_fixture"] },
+          "territories": { "type": "array", "items": { "$ref": "#/components/schemas/Territory" } }
+        }
+      },
+      "Event": {
+        "type": "object",
+        "required": ["id", "city_id", "external_id", "title", "description", "category", "venue_name", "starts_at", "ends_at", "price_from", "currency", "age_rating", "availability", "status", "source", "trust_status", "updated_at", "demo"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "city_id": { "type": "string", "format": "uuid" },
+          "external_id": { "type": "string" },
+          "title": { "type": "string" },
+          "description": { "type": "string" },
+          "category": { "type": "string" },
+          "venue_name": { "type": "string" },
+          "starts_at": { "type": "string", "format": "date-time" },
+          "ends_at": { "type": "string", "format": "date-time" },
+          "price_from": { "type": "integer", "minimum": 0 },
+          "currency": { "type": "string", "example": "RUB" },
+          "age_rating": { "type": "string" },
+          "availability": { "type": "string" },
+          "status": { "type": "string" },
+          "source": { "type": "string" },
+          "trust_status": { "type": "string" },
+          "updated_at": { "type": "string", "format": "date-time" },
+          "demo": { "type": "boolean" }
+        }
+      },
+      "EventResponse": {
+        "type": "object",
+        "required": ["event"],
+        "properties": { "event": { "$ref": "#/components/schemas/Event" } }
+      },
+      "EventListResponse": {
+        "type": "object",
+        "required": ["items", "catalog"],
+        "properties": {
+          "items": { "type": "array", "items": { "$ref": "#/components/schemas/Event" } },
+          "catalog": {
+            "type": "object",
+            "required": ["mode", "updated_at", "stale"],
+            "properties": {
+              "mode": { "type": "string", "enum": ["database"] },
+              "updated_at": { "type": "string", "format": "date-time" },
+              "stale": { "type": "boolean" }
+            }
+          }
+        }
+      },
+      "EventRefreshResponse": {
+        "type": "object",
+        "required": ["items", "source", "enriched_by"],
+        "properties": {
+          "items": { "type": "array", "items": { "$ref": "#/components/schemas/Event" } },
+          "source": { "type": "string", "enum": ["database"] },
+          "enriched_by": { "type": "string", "enum": ["deepseek"] }
+        }
+      },
+      "CreateRecommendationRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["origin_city_id", "date_from", "date_to", "adults", "transport_modes"],
+        "properties": {
+          "origin_city_id": { "type": "string", "format": "uuid" },
+          "destination_city_id": { "type": "string", "format": "uuid" },
+          "event_id": { "type": "string", "format": "uuid" },
+          "date_from": { "type": "string", "format": "date", "description": "Не раньше текущей даты и не дальше 365 дней" },
+          "date_to": { "type": "string", "format": "date", "description": "Не раньше date_from; поездка не длиннее 30 дней" },
+          "adults": { "type": "integer", "minimum": 1, "maximum": 8 },
+          "children": { "type": "integer", "minimum": 0, "maximum": 7, "default": 0 },
+          "budget": { "type": "integer", "minimum": 0, "maximum": 2000000, "default": 0 },
+          "currency": { "type": "string", "enum": ["RUB"], "default": "RUB" },
+          "transport_modes": { "type": "array", "minItems": 1, "maxItems": 8, "uniqueItems": true, "items": { "$ref": "#/components/schemas/TransportMode" } },
+          "max_travel_minutes": { "type": "integer", "minimum": 0, "maximum": 4320, "default": 0 },
+          "direct_only": { "type": "boolean", "default": false },
+          "prompt": { "type": "string" }
+        }
+      },
+      "PlanEventTripRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Город назначения и event_id берутся из события. Если date_from/date_to не заданы, сервер рассчитает их по датам события.",
+        "required": ["origin_city_id", "adults", "transport_modes"],
+        "properties": {
+          "origin_city_id": { "type": "string", "format": "uuid" },
+          "date_from": { "type": "string", "format": "date" },
+          "date_to": { "type": "string", "format": "date" },
+          "adults": { "type": "integer", "minimum": 1, "maximum": 8 },
+          "children": { "type": "integer", "minimum": 0, "maximum": 7, "default": 0 },
+          "budget": { "type": "integer", "minimum": 0, "maximum": 2000000, "default": 0 },
+          "currency": { "type": "string", "enum": ["RUB"], "default": "RUB" },
+          "transport_modes": { "type": "array", "minItems": 1, "maxItems": 8, "uniqueItems": true, "items": { "$ref": "#/components/schemas/TransportMode" } },
+          "max_travel_minutes": { "type": "integer", "minimum": 0, "maximum": 4320, "default": 0 },
+          "direct_only": { "type": "boolean", "default": false },
+          "prompt": { "type": "string" }
+        }
+      },
+      "RecommendationOption": {
+        "type": "object",
+        "required": ["id", "city_id", "city_name", "region", "rank", "score", "reason", "why_now", "price_amount", "currency", "duration_minutes", "transport_mode", "territory_gain_km2", "reward", "special_offer", "valid_until"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "city_id": { "type": "string", "format": "uuid" },
+          "city_name": { "type": "string" },
+          "region": { "type": "string" },
+          "rank": { "type": "integer", "minimum": 1 },
+          "score": { "type": "integer" },
+          "reason": { "type": "string" },
+          "why_now": { "type": "string" },
+          "price_amount": { "type": "integer", "minimum": 0 },
+          "currency": { "type": "string" },
+          "duration_minutes": { "type": "integer", "minimum": 0 },
+          "transport_mode": { "$ref": "#/components/schemas/TransportMode" },
+          "territory_gain_km2": { "type": "integer" },
+          "reward": { "type": "integer" },
+          "special_offer": { "type": "boolean" },
+          "valid_until": { "type": "string", "format": "date-time" },
+          "event_id": { "type": "string", "format": "uuid" }
+        }
+      },
+      "Recommendation": {
+        "type": "object",
+        "required": ["id", "kind", "status", "stage", "origin_city_id", "date_from", "date_to", "adults", "children", "budget", "currency", "transport_modes", "max_travel_minutes", "direct_only", "options", "created_at", "demo_fallback"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "kind": { "type": "string", "enum": ["personal", "prompt", "event"] },
+          "status": { "type": "string", "enum": ["queued", "processing", "completed", "partial", "blocked", "failed"] },
+          "stage": { "type": "string" },
+          "origin_city_id": { "type": "string", "format": "uuid" },
+          "destination_city_id": { "type": "string", "format": "uuid" },
+          "event_id": { "type": "string", "format": "uuid" },
+          "date_from": { "type": "string", "format": "date" },
+          "date_to": { "type": "string", "format": "date" },
+          "adults": { "type": "integer" },
+          "children": { "type": "integer" },
+          "budget": { "type": "integer" },
+          "currency": { "type": "string" },
+          "transport_modes": { "type": "array", "items": { "$ref": "#/components/schemas/TransportMode" } },
+          "max_travel_minutes": { "type": "integer" },
+          "direct_only": { "type": "boolean" },
+          "options": { "type": "array", "items": { "$ref": "#/components/schemas/RecommendationOption" } },
+          "created_at": { "type": "string", "format": "date-time" },
+          "completed_at": { "type": "string", "format": "date-time" },
+          "demo_fallback": { "type": "boolean" },
+          "failure_code": { "type": "string" }
+        }
+      },
+      "SelectOptionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["option_id"],
+        "properties": { "option_id": { "type": "string", "format": "uuid" } }
+      },
+      "Trip": {
+        "type": "object",
+        "required": ["id", "option", "status", "depart_at", "arrive_at", "created_at"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "option": { "$ref": "#/components/schemas/RecommendationOption" },
+          "event_id": { "type": "string", "format": "uuid" },
+          "status": { "type": "string" },
+          "checkout_url": { "type": "string", "format": "uri" },
+          "depart_at": { "type": "string", "format": "date-time" },
+          "arrive_at": { "type": "string", "format": "date-time" },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "TripResponse": {
+        "type": "object",
+        "required": ["trip"],
+        "properties": { "trip": { "$ref": "#/components/schemas/Trip" } }
+      },
+      "TripListResponse": {
+        "type": "object",
+        "required": ["items"],
+        "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/Trip" } } }
+      },
+      "CheckoutResponse": {
+        "type": "object",
+        "required": ["trip", "checkout_url", "checkout_kind", "demo"],
+        "properties": {
+          "trip": { "$ref": "#/components/schemas/Trip" },
+          "checkout_url": { "type": "string", "format": "uri" },
+          "checkout_kind": { "type": "string" },
+          "demo": { "type": "boolean" }
+        }
+      },
+      "ArrivalResponse": {
+        "type": "object",
+        "required": ["trip", "reward", "replayed"],
+        "properties": {
+          "trip": { "$ref": "#/components/schemas/Trip" },
+          "reward": { "type": "integer" },
+          "replayed": { "type": "boolean" }
+        }
+      },
+      "LedgerEntry": {
+        "type": "object",
+        "required": ["id", "amount", "reason_code", "reference_type", "reference_id", "created_at"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "amount": { "type": "integer" },
+          "reason_code": { "type": "string" },
+          "reference_type": { "type": "string" },
+          "reference_id": { "type": "string" },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "LedgerResponse": {
+        "type": "object",
+        "required": ["balance", "items"],
+        "properties": {
+          "balance": { "type": "integer" },
+          "items": { "type": "array", "items": { "$ref": "#/components/schemas/LedgerEntry" } }
+        }
+      },
+      "Achievement": {
+        "type": "object",
+        "required": ["id", "title", "description", "icon", "unlocked", "progress", "target"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "title": { "type": "string" },
+          "description": { "type": "string" },
+          "icon": { "type": "string" },
+          "unlocked": { "type": "boolean" },
+          "progress": { "type": "integer", "minimum": 0 },
+          "target": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "AchievementListResponse": {
+        "type": "object",
+        "required": ["items"],
+        "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/Achievement" } } }
+      },
+      "Season": {
+        "type": "object",
+        "required": ["id", "name", "month_title", "status", "starts_at", "ends_at", "rules_version", "user_score", "league", "percentile", "next_league_score"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "name": { "type": "string" },
+          "month_title": { "type": "string" },
+          "status": { "type": "string" },
+          "starts_at": { "type": "string", "format": "date-time" },
+          "ends_at": { "type": "string", "format": "date-time" },
+          "rules_version": { "type": "string" },
+          "user_score": { "type": "integer" },
+          "league": { "type": "string" },
+          "percentile": { "type": "integer", "minimum": 0, "maximum": 100 },
+          "next_league_score": { "type": "integer" }
+        }
+      },
+      "SeasonResponse": {
+        "type": "object",
+        "required": ["season"],
+        "properties": { "season": { "$ref": "#/components/schemas/Season" } }
+      },
+      "LeaderboardItem": {
+        "type": "object",
+        "required": ["rank", "nickname", "score", "me"],
+        "properties": {
+          "rank": { "type": "integer", "minimum": 1 },
+          "nickname": { "type": "string" },
+          "score": { "type": "integer" },
+          "me": { "type": "boolean" }
+        }
+      },
+      "Leaderboard": {
+        "type": "object",
+        "required": ["scope", "period", "generated_at", "items"],
+        "properties": {
+          "scope": { "type": "string", "enum": ["league", "guild", "global"] },
+          "period": { "type": "string", "enum": ["week", "month", "season"] },
+          "generated_at": { "type": "string", "format": "date-time" },
+          "items": { "type": "array", "items": { "$ref": "#/components/schemas/LeaderboardItem" } }
+        }
+      },
+      "GuildChallenge": {
+        "type": "object",
+        "required": ["title", "description", "progress", "target"],
+        "properties": {
+          "title": { "type": "string" },
+          "description": { "type": "string" },
+          "progress": { "type": "integer" },
+          "target": { "type": "integer" }
+        }
+      },
+      "GuildFeedItem": {
+        "type": "object",
+        "required": ["id", "text", "ago", "points"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "text": { "type": "string" },
+          "ago": { "type": "string" },
+          "points": { "type": "integer" }
+        }
+      },
+      "Guild": {
+        "type": "object",
+        "required": ["id", "name", "city_id", "emblem", "level", "members", "season_score", "rank", "challenge", "user_member", "user_contribution", "feed"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "name": { "type": "string" },
+          "city_id": { "type": "string", "format": "uuid" },
+          "emblem": { "type": "string" },
+          "level": { "type": "integer" },
+          "members": { "type": "integer" },
+          "season_score": { "type": "integer" },
+          "rank": { "type": "integer" },
+          "challenge": { "$ref": "#/components/schemas/GuildChallenge" },
+          "user_member": { "type": "boolean" },
+          "user_contribution": { "type": "integer" },
+          "feed": { "type": "array", "items": { "$ref": "#/components/schemas/GuildFeedItem" } }
+        }
+      },
+      "GuildResponse": {
+        "type": "object",
+        "required": ["guild"],
+        "properties": { "guild": { "$ref": "#/components/schemas/Guild" } }
+      },
+      "JoinGuildRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["guild_id"],
+        "properties": { "guild_id": { "type": "string", "format": "uuid" } }
+      },
+      "TravelCohort": {
+        "type": "object",
+        "required": ["visible", "threshold", "window", "privacy", "demo"],
+        "properties": {
+          "visible": { "type": "boolean" },
+          "count": { "type": "integer", "minimum": 0 },
+          "from_guild": { "type": "integer", "minimum": 0 },
+          "threshold": { "type": "integer", "minimum": 0 },
+          "message": { "type": "string" },
+          "window": { "type": "string" },
+          "privacy": { "type": "string" },
+          "demo": { "type": "boolean" }
+        }
+      },
+      "TravelCohortResponse": {
+        "type": "object",
+        "required": ["cohort"],
+        "properties": { "cohort": { "$ref": "#/components/schemas/TravelCohort" } }
+      },
+      "BootstrapResponse": {
+        "type": "object",
+        "required": ["user", "territories", "balance", "season", "personal_recommendation", "demo_mode"],
+        "properties": {
+          "user": { "$ref": "#/components/schemas/User" },
+          "territories": { "type": "array", "items": { "$ref": "#/components/schemas/Territory" } },
+          "balance": { "type": "integer" },
+          "season": { "$ref": "#/components/schemas/Season" },
+          "personal_recommendation": { "$ref": "#/components/schemas/Recommendation" },
+          "demo_mode": { "type": "boolean" }
+        }
+      },
+      "AdminOverview": {
+        "type": "object",
+        "required": ["database_ready", "demo_users", "pending_outbox", "failed_actions", "simulator_enabled"],
+        "properties": {
+          "database_ready": { "type": "boolean" },
+          "demo_users": { "type": "integer", "minimum": 0 },
+          "pending_outbox": { "type": "integer", "minimum": 0 },
+          "failed_actions": { "type": "integer", "minimum": 0 },
+          "simulator_enabled": { "type": "boolean" }
+        }
+      },
+      "AdminUserSummary": {
+        "type": "object",
+        "required": ["id", "email", "display_name", "onboarding_completed", "visits", "trips", "reward_balance"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "email": { "type": "string", "format": "email" },
+          "display_name": { "type": "string" },
+          "onboarding_completed": { "type": "boolean" },
+          "visits": { "type": "integer" },
+          "trips": { "type": "integer" },
+          "reward_balance": { "type": "integer" }
+        }
+      },
+      "AdminUserListResponse": {
+        "type": "object",
+        "required": ["items"],
+        "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/AdminUserSummary" } } }
+      },
+      "DemoScenario": {
+        "type": "object",
+        "required": ["id", "code", "name", "description", "fixture_version", "enabled"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "code": { "type": "string" },
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "fixture_version": { "type": "string" },
+          "enabled": { "type": "boolean" }
+        }
+      },
+      "DemoScenarioListResponse": {
+        "type": "object",
+        "required": ["items"],
+        "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/DemoScenario" } } }
+      },
+      "ExecuteSimulationRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["action_code", "target_type", "reason", "parameters"],
+        "properties": {
+          "action_code": { "type": "string" },
+          "target_type": { "type": "string", "enum": ["user", "trip", "season", "guild", "scenario", "system"] },
+          "target_id": { "type": "string", "format": "uuid" },
+          "demo_scenario_id": { "type": "string", "format": "uuid" },
+          "reason": { "type": "string", "minLength": 12, "maxLength": 500 },
+          "parameters": { "type": "object", "maxProperties": 20, "additionalProperties": true }
+        }
+      },
+      "AdminSimulation": {
+        "type": "object",
+        "required": ["id", "action_code", "target_type", "status", "result_summary", "created_at"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "action_code": { "type": "string" },
+          "target_type": { "type": "string" },
+          "target_id": { "type": "string", "format": "uuid" },
+          "status": { "type": "string" },
+          "result_summary": { "type": "object", "additionalProperties": true },
+          "created_at": { "type": "string", "format": "date-time" },
+          "completed_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "AdminAuditEntry": {
+        "type": "object",
+        "required": ["id", "action_code", "target_type", "outcome", "reason_code", "metadata", "created_at"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "action_code": { "type": "string" },
+          "target_type": { "type": "string" },
+          "target_id": { "type": "string", "format": "uuid" },
+          "outcome": { "type": "string" },
+          "reason_code": { "type": "string" },
+          "metadata": { "type": "object", "additionalProperties": true },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "AdminAuditListResponse": {
+        "type": "object",
+        "required": ["items"],
+        "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/AdminAuditEntry" } } }
+      }
+    }
+  }
+}

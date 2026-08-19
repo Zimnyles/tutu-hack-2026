@@ -1,0 +1,53 @@
+services:
+  postgres:
+    image: postgis/postgis:16-3.4-alpine
+    environment:
+      POSTGRES_USER: openworld
+      POSTGRES_PASSWORD: openworld
+      POSTGRES_DB: openworld
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openworld"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --save 60 1
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: ./backend
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://openworld:openworld@postgres:5432/openworld?sslmode=disable
+      REDIS_ADDR: redis:6379
+      DEMO_USER_EMAIL: ${DEMO_USER_EMAIL:-demo@otkryvai.local}
+      DEMO_USER_PASSWORD: ${DEMO_USER_PASSWORD:-openworld-demo-2026}
+      DEMO_USER_NAME: ${DEMO_USER_NAME:-Демо-путешественник}
+      DEMO_ADMIN_EMAIL: ${DEMO_ADMIN_EMAIL:-admin@otkryvai.local}
+      DEMO_ADMIN_PASSWORD: ${DEMO_ADMIN_PASSWORD:-openworld-admin-2026}
+      DEMO_ADMIN_NAME: ${DEMO_ADMIN_NAME:-Демо-администратор}
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  web:
+    build: ./frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - api
+
+volumes:
+  postgres-data:
