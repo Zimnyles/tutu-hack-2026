@@ -35,7 +35,7 @@ export function TerritorySheet({ territory, onClose }: { territory: Territory; o
     queryKey: ['events', territory.id],
     queryFn: () => api<CityEventsResponse>(`/territories/${territory.id}/events`),
     enabled: tab === 'events',
-    refetchInterval: (query) => (query.state.data?.discovering ? 5000 : false),
+    refetchInterval: (query) => (query.state.data?.discovering ? 3000 : false),
   })
   const discovering = Boolean(events.data?.discovering)
   const cohort = useQuery({

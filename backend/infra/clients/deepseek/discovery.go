@@ -13,9 +13,10 @@ import (
 )
 
 const (
-	discoveryOutputTokens   = 24000
-	discoveryCityToolCalls  = 6
-	discoveryTopToolCalls   = 6
+	discoveryCityTokens     = 6000
+	discoveryTopTokens      = 9000
+	discoveryCityToolCalls  = 1
+	discoveryTopToolCalls   = 3
 	discoveryDefaultHours   = 3
 	maximumDiscoveredEvents = 40
 	maximumTitleRunes       = 160
@@ -87,10 +88,7 @@ func (d *EventDiscoverer) DiscoverCity(
 	limit int,
 ) ([]domain.DiscoveredEvent, error) {
 	input := fmt.Sprintf(
-		"Найди в интернете реальные события и мероприятия в городе %s (%s) в период с %s по %s.\n"+
-			"Ищи афишу на официальных сайтах площадок, городских порталах и билетных сервисах.\n"+
-			"Нужно до %d самых интересных для туриста событий: концерты, фестивали, выставки, "+
-			"театральные премьеры, спорт, гастрономические события.\n%s",
+		"Афиша города %s, %s. Период: %s — %s. Нужно до %d событий для туриста.\n%s",
 		city.Name,
 		city.Region,
 		dateFrom.Format(time.DateOnly),
@@ -99,7 +97,7 @@ func (d *EventDiscoverer) DiscoverCity(
 		discoveryFormat(false),
 	)
 
-	events, err := d.discover(ctx, input, dateFrom, dateTo, limit, discoveryCityToolCalls)
+	events, err := d.discover(ctx, input, dateFrom, dateTo, limit, discoveryCityToolCalls, discoveryCityTokens)
 	if err != nil {
 		return nil, err
 	}
@@ -124,18 +122,16 @@ func (d *EventDiscoverer) DiscoverPopular(
 	}
 
 	input := fmt.Sprintf(
-		"Найди в интернете %d самых популярных и обсуждаемых событий России в период с %s по %s.\n"+
-			"Это должны быть крупные события федерального уровня: музыкальные фестивали, большие концерты, "+
-			"спортивные матчи, значимые выставки и театральные премьеры.\n"+
-			"Разные города, не более двух событий на один город.\n"+
-			"В поле city укажи название города в именительном падеже, например «Казань».\n%s",
-		limit,
+		"Главные события России, период %s — %s. Нужно %d крупных событий федерального уровня "+
+			"из разных городов, максимум два события на город.\n"+
+			"В поле city — город в именительном падеже, например «Казань».\n%s",
 		dateFrom.Format(time.DateOnly),
 		dateTo.Format(time.DateOnly),
+		limit,
 		discoveryFormat(true),
 	)
 
-	events, err := d.discover(ctx, input, dateFrom, dateTo, limit, discoveryTopToolCalls)
+	events, err := d.discover(ctx, input, dateFrom, dateTo, limit, discoveryTopToolCalls, discoveryTopTokens)
 	if err != nil {
 		return nil, err
 	}
@@ -169,16 +165,19 @@ func (d *EventDiscoverer) discover(
 	dateTo time.Time,
 	limit int,
 	toolCalls int,
+	outputTokens int,
 ) ([]domain.DiscoveredEvent, error) {
 	content, err := d.transport.search(ctx, searchRequest{
 		Model: d.model,
-		Instructions: "Ты помощник путешественника. Ты обязан искать события в интернете " +
-			"и использовать только найденные факты. Никогда не выдумывай события, даты и цены. " +
-			"Если событие не подтверждается источником, не включай его. " +
-			fmt.Sprintf("Сделай не более %d поисковых запросов, затем сразу верни итоговый ответ. ", toolCalls) +
-			"Отвечай только JSON-объектом без markdown и пояснений.",
+		Instructions: fmt.Sprintf(
+			"Составь афишу по результатам поиска. Сделай %d поиск(а) и сразу верни ответ. "+
+				"Не проверяй события отдельными запросами, не рассуждай, не пиши текст вокруг JSON. "+
+				"Бери только события из результатов поиска, ничего не придумывай. "+
+				"Ответ — один JSON-объект.",
+			toolCalls,
+		),
 		Input:           input,
-		MaxOutputTokens: discoveryOutputTokens,
+		MaxOutputTokens: outputTokens,
 		MaxToolCalls:    toolCalls,
 	})
 	if err != nil {
@@ -186,7 +185,7 @@ func (d *EventDiscoverer) discover(
 	}
 
 	var envelope discoveryEnvelope
-	if err := json.Unmarshal([]byte(content), &envelope); err != nil {
+	if err := json.Unmarshal([]byte(discoveryJSON(content)), &envelope); err != nil {
 		return nil, fmt.Errorf("%w: %w", ai_errors.ErrInvalidDiscovery, err)
 	}
 
@@ -295,14 +294,23 @@ func discoveryFormat(includeCity bool) string {
 		cityField = `"city":"Казань",`
 	}
 
-	return "Ответ строго в формате JSON:\n" +
+	return "Формат ответа:\n" +
 		`{"events":[{` + cityField +
-		`"title":"Название события","category":"concert|festival|exhibition|theatre|sport|food|other",` +
-		`"venue":"Площадка","description":"Одно предложение до 140 символов без ссылок",` +
-		`"starts_at":"2026-09-05T19:00:00+03:00","ends_at":"2026-09-05T22:00:00+03:00",` +
-		`"price_from":1500,"source_url":"https://..."}]}` + "\n" +
-		"Цена price_from в рублях, 0 если вход свободный. " +
-		"Если событие идёт несколько дней, укажи фактические даты начала и окончания."
+		`"title":"Название","category":"concert|festival|exhibition|theatre|sport|food|other",` +
+		`"venue":"Площадка","description":"Одно предложение до 140 символов",` +
+		`"starts_at":"2026-09-05T19:00:00+03:00","ends_at":"","price_from":1500,"source_url":""}]}` + "\n" +
+		"price_from в рублях, 0 если бесплатно. ends_at и source_url можно оставить пустыми."
+}
+
+func discoveryJSON(content string) string {
+	start := strings.IndexByte(content, '{')
+	end := strings.LastIndexByte(content, '}')
+
+	if start < 0 || end <= start {
+		return content
+	}
+
+	return content[start : end+1]
 }
 
 func cityIndex(cities []domain.Territory) map[string]domain.Territory {

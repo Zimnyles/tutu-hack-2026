@@ -18,7 +18,7 @@ const (
 	busyBackoff     = 2 * time.Minute
 	prewarmPause    = 10 * time.Second
 	eventRetention  = 7
-	slotWaitTimeout = 30 * time.Second
+	slotWaitTimeout = 60 * time.Second
 )
 
 type Listing struct {
