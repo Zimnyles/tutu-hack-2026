@@ -31,6 +31,7 @@ export type Territory = {
   state: TerritoryState
   level: number
   tags: string[]
+  badges: string[]
   rarity: number
   reward: number
   promo_percent: number
@@ -236,6 +237,13 @@ export type OnboardingOption = {
   description?: string
 }
 
+export type BadgeDefinition = {
+  label: string
+  group: string
+  icon: string
+  related: string[]
+}
+
 export type PublicSettings = {
   onboarding: {
     themes: OnboardingOption[]
@@ -248,6 +256,7 @@ export type PublicSettings = {
   recommendation_stages: Array<{ code: string; label: string }>
   privacy_threshold: number
   home_cities: Array<{ id: string; name: string; region: string }>
+  badges: BadgeDefinition[]
 }
 
 export type ProfileResponse = {

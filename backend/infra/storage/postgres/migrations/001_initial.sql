@@ -470,46 +470,6 @@ VALUES
 ('10000000-0000-0000-0000-000000000031','Владивосток','vladivostok','Приморский край',ST_GeogFromText('POINT(131.89 43.12)'),ARRAY['sea','food','nature'],4,160,'Мосты, сопки и кухня Тихого океана.','blue')
 ON CONFLICT (id) DO NOTHING;
 
-INSERT INTO event_sources (id, code, name, base_domain, trust_level, last_synced_at, last_sync_status)
-VALUES ('20000000-0000-0000-0000-000000000001','demo_catalog','Demo catalog · Туту','example.invalid',10,now(),'ok')
-ON CONFLICT (id) DO NOTHING;
-
-WITH city_set AS (
-    SELECT id, name, row_number() OVER (ORDER BY id) AS city_number
-    FROM territories
-    WHERE slug IN ('ufa','perm','tyumen','chelyabinsk','tobolsk','kazan','samara','moscow','saint-petersburg','nizhny-novgorod')
-), fixture AS (
-    SELECT city_set.*, series.event_number
-    FROM city_set
-    CROSS JOIN generate_series(1,3) AS series(event_number)
-)
-INSERT INTO events (city_id, source_id, external_id, title, description_plain, category, venue_name, starts_at, ends_at, price_from, age_rating, availability, expires_at, is_demo)
-SELECT
-    fixture.id,
-    '20000000-0000-0000-0000-000000000001',
-    fixture.id::text || '-' || fixture.event_number,
-    fixture.name || ': ' || (ARRAY['городской фестиваль','музыкальный вечер','выставка новых маршрутов'])[fixture.event_number],
-    'Подготовленное демонстрационное событие. Актуальность подтверждается локальным каталогом.',
-    (ARRAY['festival','concert','exhibition'])[fixture.event_number],
-    (ARRAY['Центральная площадь','Городской театр','Музей города'])[fixture.event_number],
-    date_trunc('day', now()) + ((fixture.city_number + fixture.event_number + 3) || ' days')::interval + interval '15 hours',
-    date_trunc('day', now()) + ((fixture.city_number + fixture.event_number + 3) || ' days')::interval + interval '18 hours',
-    (ARRAY[0,900,550])[fixture.event_number],
-    (ARRAY['0+','12+','6+'])[fixture.event_number],
-    (ARRAY['available','limited','available'])[fixture.event_number],
-    now() + interval '60 days',
-    TRUE
-FROM fixture
-ON CONFLICT (source_id, external_id) DO UPDATE SET
-    starts_at = EXCLUDED.starts_at,
-    ends_at = EXCLUDED.ends_at,
-    expires_at = EXCLUDED.expires_at,
-    source_updated_at = now();
-
-UPDATE events SET title = 'Уфимский фестиваль вкуса' WHERE external_id = '10000000-0000-0000-0000-000000000004-1';
-UPDATE events SET title = 'Вечер башкирской музыки' WHERE external_id = '10000000-0000-0000-0000-000000000004-2';
-UPDATE events SET title = 'Городские истории Уфы' WHERE external_id = '10000000-0000-0000-0000-000000000004-3';
-
 INSERT INTO demo_travel_history (demo_profile, origin_city_id, destination_city_id, departed_at, arrived_at, transport_mode, external_order_ref)
 SELECT 'default', origin.id, destination.id, now() - interval '420 days', now() - interval '419 days', 'railway', 'DEMO-MSK'
 FROM territories origin, territories destination WHERE origin.slug = 'yekaterinburg' AND destination.slug = 'moscow'

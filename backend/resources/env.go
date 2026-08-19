@@ -31,6 +31,7 @@ const (
 	defaultEventDiscoveryCityLimit    = 10
 	defaultEventDiscoveryPopularLimit = 12
 	defaultEventDiscoveryCityPool     = 120
+	defaultEventDiscoveryPrewarm      = 250
 	defaultEventDiscoveryWindowDays   = 60
 	defaultEventDiscoveryConcurrency  = 3
 
@@ -88,6 +89,7 @@ type Env struct {
 	EventDiscoveryCityLimit       int
 	EventDiscoveryPopularLimit    int
 	EventDiscoveryCityPool        int
+	EventDiscoveryPrewarmCities   int
 	EventDiscoveryWindowDays      int
 	EventDiscoveryConcurrency     int
 	LogLevel                      slog.Level
@@ -140,6 +142,7 @@ func LoadEnv() (*Env, error) {
 		EventDiscoveryCityLimit:       intValue("EVENT_DISCOVERY_CITY_LIMIT", defaultEventDiscoveryCityLimit),
 		EventDiscoveryPopularLimit:    intValue("EVENT_DISCOVERY_POPULAR_LIMIT", defaultEventDiscoveryPopularLimit),
 		EventDiscoveryCityPool:        intValue("EVENT_DISCOVERY_CITY_POOL", defaultEventDiscoveryCityPool),
+		EventDiscoveryPrewarmCities:   intValue("EVENT_DISCOVERY_PREWARM_CITIES", defaultEventDiscoveryPrewarm),
 		EventDiscoveryWindowDays:      intValue("EVENT_DISCOVERY_WINDOW_DAYS", defaultEventDiscoveryWindowDays),
 		EventDiscoveryConcurrency:     intValue("EVENT_DISCOVERY_CONCURRENCY", defaultEventDiscoveryConcurrency),
 		LogLevel:                      logLevelValue("LOG_LEVEL", slog.LevelInfo),

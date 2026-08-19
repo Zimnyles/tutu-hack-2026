@@ -85,6 +85,12 @@ func calculateScore(
 	weights domain.ScoringWeights,
 ) int {
 	preferenceMatch := overlapRatio(user.Preferences.Themes, candidate.Tags)
+	if badgeMatch := badgeMatchRatio(
+		domain.BadgesForThemes(user.Preferences.Themes),
+		candidate.Badges,
+	); badgeMatch > preferenceMatch {
+		preferenceMatch = badgeMatch
+	}
 
 	priceValue := 0.0
 	if recommendation.Budget > 0 {
@@ -182,6 +188,32 @@ func overlapRatio(preferences []string, tags []string) float64 {
 	}
 
 	return clamp01(float64(matches) / float64(len(preferences)))
+}
+
+func badgeMatchRatio(wanted []string, badges []string) float64 {
+	if len(wanted) == 0 || len(badges) == 0 {
+		return 0
+	}
+
+	badgeSet := make(map[string]struct{}, len(badges))
+	for _, badge := range badges {
+		badgeSet[badge] = struct{}{}
+	}
+
+	matches := 0
+
+	for _, badge := range wanted {
+		if _, found := badgeSet[badge]; found {
+			matches++
+		}
+	}
+
+	divisor := len(badges)
+	if len(wanted) < divisor {
+		divisor = len(wanted)
+	}
+
+	return clamp01(float64(matches) / float64(divisor))
 }
 
 func clamp01(value float64) float64 {

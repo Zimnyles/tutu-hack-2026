@@ -32,6 +32,7 @@ type searchRequest struct {
 	Input           string       `json:"input"`
 	Tools           []searchTool `json:"tools"`
 	MaxOutputTokens int          `json:"max_output_tokens,omitempty"`
+	MaxToolCalls    int          `json:"max_tool_calls,omitempty"`
 }
 
 type searchTool struct {
@@ -43,6 +44,10 @@ type searchResponse struct {
 	IncompleteDetails *struct {
 		Reason string `json:"reason"`
 	} `json:"incomplete_details"`
+	Error *struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	} `json:"error"`
 	Output []struct {
 		Type    string `json:"type"`
 		Content []struct {
@@ -144,16 +149,37 @@ func (c searchClient) attemptSearch(ctx context.Context, requestBody []byte) (st
 		return "", fmt.Errorf("decode DeepSeek search response: %w", err)
 	}
 
-	if result.IncompleteDetails != nil && result.IncompleteDetails.Reason == "max_output_tokens" {
-		return "", ai_errors.ErrTruncatedCompletion
+	if result.Error != nil && result.Error.Message != "" {
+		return "", fmt.Errorf("%w: %s: %s", ai_errors.ErrProviderFailure, result.Error.Code, result.Error.Message)
+	}
+
+	if result.IncompleteDetails != nil {
+		return "", fmt.Errorf("%w: %s", ai_errors.ErrTruncatedCompletion, result.IncompleteDetails.Reason)
+	}
+
+	if result.Status == "incomplete" {
+		return "", fmt.Errorf("%w: incomplete response", ai_errors.ErrTruncatedCompletion)
 	}
 
 	content := sanitizeContent(searchMessageText(result))
-	if content == "" {
-		return "", ai_errors.ErrMissingChoice
+	if content != "" {
+		return content, nil
 	}
 
-	return content, nil
+	if result.Status != "" && result.Status != "completed" {
+		return "", fmt.Errorf("%w: status %s", ai_errors.ErrTemporaryFailure, result.Status)
+	}
+
+	return "", fmt.Errorf("%w: output %s", ai_errors.ErrMissingChoice, strings.Join(outputTypes(result), ","))
+}
+
+func outputTypes(response searchResponse) []string {
+	types := make([]string, 0, len(response.Output))
+	for _, item := range response.Output {
+		types = append(types, item.Type)
+	}
+
+	return types
 }
 
 func searchMessageText(response searchResponse) string {

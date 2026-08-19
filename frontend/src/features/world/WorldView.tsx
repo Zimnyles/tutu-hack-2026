@@ -1,11 +1,11 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Coins, Compass, LocateFixed, MapPin, Sparkles, TrendingUp, X } from 'lucide-react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Coins, Compass, Flame, LocateFixed, MapPin, Sparkles, TrendingUp, X } from 'lucide-react'
 import { api } from '../../api'
 import { useApp } from '../../state'
 import { CityPhoto } from '../../components/CityPhoto'
-import type { Bootstrap, Recommendation, RecommendationOption, Territory } from '../../types'
-import { formatDuration, formatMoney } from '../../shared/format'
+import type { Bootstrap, PopularEventsResponse, Recommendation, RecommendationOption, Territory } from '../../types'
+import { formatDate, formatDuration, formatMoney } from '../../shared/format'
 import { useMediaQuery } from '../../shared/useMediaQuery'
 import { isTerminalStatus, useRecommendationStream } from '../../shared/useRecommendation'
 import { TerritorySheet } from './TerritorySheet'
@@ -88,7 +88,12 @@ export function WorldView({ data }: { data: Bootstrap }) {
           </div>
         </div>
         <Suspense fallback={<div className="globe-skeleton"><span /></div>}>
-          <Globe territories={data.territories} onSelect={handleSelect} reduceMotion={reduceMotion} />
+          <Globe
+            territories={data.territories}
+            onSelect={handleSelect}
+            homeCityID={data.user.home_city_id}
+            reduceMotion={reduceMotion}
+          />
         </Suspense>
         <div className="map-controls">
           <button onClick={() => setListOpen((value) => !value)} aria-expanded={listOpen} aria-controls="city-list">
@@ -121,7 +126,10 @@ export function WorldView({ data }: { data: Bootstrap }) {
                 }}
               >
                 <span className={`state-dot ${city.popular_event ? 'has-events' : city.state}`} aria-hidden="true" />
-                <span><strong>{city.name}</strong><small>{city.region}</small></span>
+                <span>
+                  <strong>{city.name}</strong>
+                  <small>{[city.region, ...city.badges.slice(0, 2)].join(' · ')}</small>
+                </span>
                 <em className={city.popular_event ? 'has-events' : undefined}>
                   {city.popular_event ? 'Популярное событие' : stateLabels[city.state]}
                 </em>
@@ -156,6 +164,14 @@ export function WorldView({ data }: { data: Bootstrap }) {
             }
           }}
         />
+        <PopularEvents
+          onOpenCity={(cityID) => {
+            const city = data.territories.find((item) => item.id === cityID)
+            if (city) {
+              setSelected(city)
+            }
+          }}
+        />
         <div className="season-mini">
           <div>
             <TrendingUp aria-hidden="true" />
@@ -170,6 +186,49 @@ export function WorldView({ data }: { data: Bootstrap }) {
 
       {selected && <TerritorySheet territory={selected} onClose={() => setSelected(null)} />}
     </div>
+  )
+}
+
+function PopularEvents({ onOpenCity }: { onOpenCity: (cityID: string) => void }) {
+  const popular = useQuery({
+    queryKey: ['popular-events'],
+    queryFn: () => api<PopularEventsResponse>('/events/popular'),
+    refetchInterval: (query) => (query.state.data?.discovering ? 8000 : false),
+    staleTime: 5 * 60 * 1000,
+  })
+
+  const items = popular.data?.items ?? []
+
+  if (items.length === 0 && !popular.data?.discovering) {
+    return null
+  }
+
+  return (
+    <section className="popular-events" aria-label="Популярные события России">
+      <header>
+        <Flame aria-hidden="true" />
+        <strong>Популярно в России</strong>
+      </header>
+      {items.length === 0 ? (
+        <p className="popular-events-empty" role="status" aria-live="polite">
+          Нейросеть подбирает главные события месяца.
+        </p>
+      ) : (
+        <ul>
+          {items.slice(0, 6).map((event) => (
+            <li key={event.id}>
+              <button onClick={() => onOpenCity(event.city_id)}>
+                <span className="popular-date">{formatDate(event.starts_at)}</span>
+                <span>
+                  <strong>{event.title}</strong>
+                  <small>{event.city_name}</small>
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   )
 }
 

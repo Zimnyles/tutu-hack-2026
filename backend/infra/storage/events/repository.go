@@ -66,18 +66,7 @@ func (r *Repository) List(
 		  AND ($5 = 0 OR COALESCE(event.price_from, 0) <= $5)
 		  AND ($6 = '' OR event.age_rating = $6)
 		  AND ($7 = '' OR event.availability = $7)
-		  AND (
-			NOT event.is_demo
-			OR NOT EXISTS (
-				SELECT 1
-				FROM events live
-				WHERE live.city_id = $1
-				  AND live.source_id = '20000000-0000-0000-0000-000000000003'
-				  AND live.status = 'active'
-				  AND live.ends_at > now()
-				  AND live.expires_at > now()
-			)
-		  )
+		  AND NOT event.is_demo
 		ORDER BY event.starts_at
 		LIMIT 60`
 
@@ -238,7 +227,7 @@ func (r *Repository) SaveCityDiscovery(
 	discovered []domain.DiscoveredEvent,
 	expiresAt time.Time,
 ) error {
-	return r.saveDiscovery(ctx, discovered, expiresAt, func(ctx context.Context, tx pgx.Tx) error {
+	return r.saveDiscovery(ctx, discovered, expiresAt, false, func(ctx context.Context, tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
 			UPDATE events
 			SET status = 'expired', updated_at = now()
@@ -260,7 +249,7 @@ func (r *Repository) SavePopularDiscovery(
 	discovered []domain.DiscoveredEvent,
 	expiresAt time.Time,
 ) error {
-	return r.saveDiscovery(ctx, discovered, expiresAt, func(ctx context.Context, tx pgx.Tx) error {
+	return r.saveDiscovery(ctx, discovered, expiresAt, true, func(ctx context.Context, tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
 			UPDATE events
 			SET popularity_rank = NULL, updated_at = now()
@@ -278,6 +267,7 @@ func (r *Repository) saveDiscovery(
 	ctx context.Context,
 	discovered []domain.DiscoveredEvent,
 	expiresAt time.Time,
+	ranked bool,
 	prepare func(context.Context, pgx.Tx) error,
 ) error {
 	transaction, err := r.database.Begin(ctx)
@@ -294,6 +284,11 @@ func (r *Repository) saveDiscovery(
 	}
 
 	for _, event := range discovered {
+		rank := 0
+		if ranked {
+			rank = event.Rank
+		}
+
 		provenance, err := json.Marshal(map[string]any{
 			"provider":   "deepseek",
 			"mode":       "web_search",
@@ -319,7 +314,7 @@ func (r *Repository) saveDiscovery(
 			event.Currency,
 			string(provenance),
 			nullText(event.SourceURL),
-			nullRank(event.Rank),
+			nullRank(rank),
 			expiresAt,
 		)
 		if err != nil {

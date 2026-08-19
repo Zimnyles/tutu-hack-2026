@@ -15,6 +15,7 @@ var (
 	ErrTemporaryFailure    = errors.New("AI provider is temporarily unavailable")
 	ErrTruncatedCompletion = errors.New("AI provider response was truncated")
 	ErrRedirectNotAllowed  = errors.New("AI provider redirect is not allowed")
+	ErrProviderFailure     = errors.New("AI provider reported a failure")
 	ErrInvalidDiscovery    = errors.New("AI event discovery payload is invalid")
 	ErrEmptyDiscovery      = errors.New("AI event discovery returned no events")
 )

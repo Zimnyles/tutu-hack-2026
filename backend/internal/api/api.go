@@ -65,6 +65,7 @@ const (
 	mcpMaxResponseSize = 2 << 20
 
 	popularRefreshInterval = 30 * time.Minute
+	prewarmInterval        = 10 * time.Minute
 	minimumPromptRunes     = 100
 	maximumPromptRunes     = 8_000
 )
@@ -194,6 +195,7 @@ func (a *API) Start(ctx context.Context) error {
 			CityLimit:        environment.EventDiscoveryCityLimit,
 			PopularLimit:     environment.EventDiscoveryPopularLimit,
 			PopularCityPool:  environment.EventDiscoveryCityPool,
+			PrewarmCities:    environment.EventDiscoveryPrewarmCities,
 			WindowDays:       environment.EventDiscoveryWindowDays,
 			Concurrency:      environment.EventDiscoveryConcurrency,
 		},
@@ -240,6 +242,7 @@ func (a *API) Start(ctx context.Context) error {
 
 	if environment.EventDiscoveryEnabled {
 		go watchPopularEvents(ctx, eventService, popularRefreshInterval)
+		go watchCityPrewarm(ctx, eventService, prewarmInterval)
 	}
 
 	errorChannel := make(chan error, 1)
@@ -271,6 +274,26 @@ func watchPopularEvents(
 			return
 		case <-ticker.C:
 			service.RefreshPopular(ctx)
+		}
+	}
+}
+
+func watchCityPrewarm(
+	ctx context.Context,
+	service *events_service.Service,
+	interval time.Duration,
+) {
+	for {
+		service.PrewarmCities(ctx)
+
+		timer := time.NewTimer(interval)
+
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+
+			return
+		case <-timer.C:
 		}
 	}
 }

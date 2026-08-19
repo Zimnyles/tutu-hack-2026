@@ -16,6 +16,8 @@ const (
 	countryScope    = "country"
 	countryScopeKey = "russia"
 	busyBackoff     = 2 * time.Minute
+	prewarmPause    = 10 * time.Second
+	eventRetention  = 7
 	slotWaitTimeout = 30 * time.Second
 )
 
@@ -51,6 +53,35 @@ func (s *Service) Popular(ctx context.Context) (Listing, error) {
 	return Listing{Items: items, Discovering: discovering, RefreshedAt: state.RefreshedAt}, nil
 }
 
+func (s *Service) PrewarmCities(ctx context.Context) {
+	if !s.config.DiscoveryEnabled || s.discoverer == nil || s.config.PrewarmCities == 0 {
+		return
+	}
+
+	cities, err := s.repository.DiscoveryCities(ctx, s.config.PrewarmCities)
+	if err != nil {
+		s.logger.Warn("read prewarm cities", "error", err)
+
+		return
+	}
+
+	for _, city := range cities {
+		if ctx.Err() != nil {
+			return
+		}
+
+		if _, started := s.ensureCityDiscovery(ctx, city); !started {
+			continue
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(prewarmPause):
+		}
+	}
+}
+
 func (s *Service) RefreshPopular(ctx context.Context) {
 	if _, discovering := s.ensurePopularDiscovery(ctx); !discovering {
 		return
@@ -79,7 +110,7 @@ func (s *Service) ensureCityDiscovery(
 			runContext,
 			city.ID,
 			discovered,
-			time.Now().Add(s.config.CacheTTL),
+			time.Now().Add(eventRetention*s.config.CacheTTL),
 		); err != nil {
 			return 0, err
 		}
@@ -117,7 +148,7 @@ func (s *Service) ensurePopularDiscovery(
 			if err := s.repository.SavePopularDiscovery(
 				runContext,
 				discovered,
-				time.Now().Add(s.config.CacheTTL),
+				time.Now().Add(eventRetention*s.config.CacheTTL),
 			); err != nil {
 				return 0, err
 			}

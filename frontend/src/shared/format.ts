@@ -45,7 +45,9 @@ export function visibilityLabel(value: string) {
 }
 
 export function eventAvailability(value: string) {
-  return ({ available: 'Есть места', limited: 'Мало мест', sold_out: 'Продано' } as Record<string, string>)[value] ?? value
+  return ({
+    available: 'Есть места', limited: 'Мало мест', sold_out: 'Продано', unknown: '',
+  } as Record<string, string>)[value] ?? ''
 }
 
 export function contentLabel(value: string) {

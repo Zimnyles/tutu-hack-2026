@@ -36,6 +36,7 @@ type Territory struct {
 	State              string   `json:"state"`
 	Level              int      `json:"level"`
 	Tags               []string `json:"tags"`
+	Badges             []string `json:"badges"`
 	Rarity             int      `json:"rarity"`
 	Reward             int      `json:"reward"`
 	PromoPercent       int      `json:"promo_percent"`
@@ -252,6 +253,14 @@ type PublicSettings struct {
 	RecommendationStages []WorkflowStage      `json:"recommendation_stages"`
 	PrivacyThreshold     int                  `json:"privacy_threshold"`
 	HomeCities           []TerritoryReference `json:"home_cities"`
+	Badges               []BadgeDefinition    `json:"badges"`
+}
+
+type BadgeDefinition struct {
+	Label   string   `json:"label"`
+	Group   string   `json:"group"`
+	Icon    string   `json:"icon"`
+	Related []string `json:"related"`
 }
 
 type WorkflowStage struct {

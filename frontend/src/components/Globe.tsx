@@ -1,17 +1,24 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Crosshair, Minus, Plus } from 'lucide-react'
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Crosshair, Minus, Plus, X } from 'lucide-react'
 import * as THREE from 'three'
 import type { Territory } from '../types'
 
 const GLOBE_RADIUS = 2
-const MIN_ZOOM = 1.6
+const ATMOSPHERE_SCALE = 1.07
+const MIN_ZOOM = GLOBE_RADIUS * ATMOSPHERE_SCALE + 0.45
 const MAX_ZOOM = 9
 const UPCOMING_EVENT_COLOR = 0x2f7bff
 const MAX_PITCH = 0.92
 const REFERENCE_DISTANCE = 6.8
-const MIN_MARKER_SCALE = 0.4
-const MAX_MARKER_SCALE = 1.1
-const PICK_RADIUS = 20
+const MAX_MARKER_SCALE = 1.15
+const MARKER_SIZE = 0.04
+const MARKER_SIZE_HIGHLIGHTED = 0.05
+const MARKER_SIZE_LOCKED = 0.03
+const MARKER_HOVER_SCALE = 1.6
+const PULSE_PERIOD = 1.9
+const PULSE_SPREAD = 1.6
+const PULSE_OPACITY = 0.55
+const PICK_RADIUS = 22
 const TAP_TOLERANCE = 8
 const ROTATE_STEP = 0.18
 const ZOOM_STEP = 0.3
@@ -20,6 +27,7 @@ const HOLD_INTERVAL = 120
 type GlobeProps = {
   territories: Territory[]
   onSelect: (territory: Territory) => void
+  homeCityID?: string
   reduceMotion?: boolean
 }
 
@@ -39,6 +47,12 @@ type HoveredMarker = {
   promoPercent: number
   x: number
   y: number
+}
+
+type MarkerCluster = {
+  x: number
+  y: number
+  items: HoveredMarker[]
 }
 
 const stateLabels: Record<Territory['state'], string> = {
@@ -64,7 +78,49 @@ function markerColor(territory: Territory) {
   if (territory.state === 'arrived') return 0x00c95e
   if (territory.state === 'suggested') return 0xff872e
   if (territory.state === 'planned') return 0x5f94ff
+
   return 0xff86f8
+}
+
+function canvasTexture(draw: (context: CanvasRenderingContext2D, size: number) => void) {
+  const size = 128
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+
+  const context = canvas.getContext('2d')
+  if (!context) return null
+
+  draw(context, size)
+
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+
+  return texture
+}
+
+// Белая заливка тонируется цветом состояния; отступ по краю оставлен на сглаживание.
+function dotTexture() {
+  return canvasTexture((context, size) => {
+    const center = size / 2
+
+    context.beginPath()
+    context.arc(center, center, center - 6, 0, Math.PI * 2)
+    context.fillStyle = '#ffffff'
+    context.fill()
+  })
+}
+
+function pulseTexture() {
+  return canvasTexture((context, size) => {
+    const center = size / 2
+
+    context.beginPath()
+    context.arc(center, center, center - 9, 0, Math.PI * 2)
+    context.lineWidth = 12
+    context.strokeStyle = '#ffffff'
+    context.stroke()
+  })
 }
 
 function hasUpcomingEvents(territory: Territory) {
@@ -96,17 +152,30 @@ function homeOrientation(territories: Territory[]) {
   }
 }
 
-export function Globe({ territories, onSelect, reduceMotion = false }: GlobeProps) {
+export function Globe({ territories, onSelect, homeCityID = '', reduceMotion = false }: GlobeProps) {
   const host = useRef<HTMLDivElement>(null)
   const controls = useRef<GlobeControls | null>(null)
   const hoveredID = useRef<string | null>(null)
   const [fallback, setFallback] = useState(false)
   const [hovered, setHovered] = useState<HoveredMarker | null>(null)
+  const [cluster, setCluster] = useState<MarkerCluster | null>(null)
 
   const clearHover = useCallback(() => {
     hoveredID.current = null
     setHovered(null)
   }, [])
+
+  useEffect(() => {
+    if (!cluster) return
+
+    const close = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setCluster(null)
+    }
+
+    window.addEventListener('keydown', close)
+
+    return () => window.removeEventListener('keydown', close)
+  }, [cluster])
 
   useEffect(() => {
     if (!host.current) return
@@ -208,7 +277,7 @@ export function Globe({ territories, onSelect, reduceMotion = false }: GlobeProp
     group.add(grid)
 
     const atmosphere = new THREE.Mesh(
-      new THREE.SphereGeometry(GLOBE_RADIUS * 1.07, 64, 64),
+      new THREE.SphereGeometry(GLOBE_RADIUS * ATMOSPHERE_SCALE, 64, 64),
       new THREE.MeshBasicMaterial({
         color: 0x7d71ff,
         transparent: true,
@@ -219,8 +288,16 @@ export function Globe({ territories, onSelect, reduceMotion = false }: GlobeProp
     )
     group.add(atmosphere)
 
-    const markers: Array<{ territory: Territory; anchor: THREE.Vector3; mesh: THREE.Mesh; scale: number }> = []
-    const pulsingMarkers: THREE.Object3D[] = []
+    const dot = dotTexture()
+    const ring = pulseTexture()
+    const markers: Array<{
+      territory: Territory
+      anchor: THREE.Vector3
+      sprite: THREE.Sprite
+      pulse: THREE.Sprite | null
+      size: number
+      scale: number
+    }> = []
     const highlightedSuggestions = new Set(
       territories
         .filter((territory) => territory.state === 'suggested')
@@ -230,40 +307,52 @@ export function Globe({ territories, onSelect, reduceMotion = false }: GlobeProp
     )
 
     territories.forEach((territory) => {
-      const upcoming = hasUpcomingEvents(territory)
-      const highlighted = upcoming || highlightedSuggestions.has(territory.id)
-      const radius = highlighted ? 0.028 : territory.state === 'locked' ? 0.015 : 0.02
-      const marker = new THREE.Mesh(
-        new THREE.SphereGeometry(radius, 14, 14),
-        new THREE.MeshBasicMaterial({ color: markerColor(territory) }),
+      const highlighted = hasUpcomingEvents(territory) || highlightedSuggestions.has(territory.id)
+      const size = highlighted
+        ? MARKER_SIZE_HIGHLIGHTED
+        : territory.state === 'locked' ? MARKER_SIZE_LOCKED : MARKER_SIZE
+      const color = markerColor(territory)
+      const anchor = globePoint(territory.latitude, territory.longitude, GLOBE_RADIUS + 0.035)
+
+      const marker = new THREE.Sprite(
+        new THREE.SpriteMaterial({
+          map: dot,
+          color,
+          transparent: true,
+          depthWrite: false,
+          toneMapped: false,
+        }),
       )
-      marker.position.copy(globePoint(territory.latitude, territory.longitude, GLOBE_RADIUS + 0.035))
+      marker.position.copy(anchor)
+      marker.scale.setScalar(size)
       marker.renderOrder = 4
       group.add(marker)
-      markers.push({ territory, anchor: marker.position.clone(), mesh: marker, scale: 1 })
 
+      let pulse: THREE.Sprite | null = null
       if (highlighted) {
-        const halo = new THREE.Mesh(
-          new THREE.RingGeometry(0.044, 0.061, 28),
-          new THREE.MeshBasicMaterial({
-            color: markerColor(territory),
+        pulse = new THREE.Sprite(
+          new THREE.SpriteMaterial({
+            map: ring,
+            color,
             transparent: true,
-            opacity: 0.92,
-            side: THREE.DoubleSide,
+            opacity: PULSE_OPACITY,
+            depthWrite: false,
+            toneMapped: false,
           }),
         )
-        halo.position.copy(marker.position)
-        halo.lookAt(new THREE.Vector3())
-        halo.renderOrder = 3
-        group.add(halo)
-        pulsingMarkers.push(halo)
+        pulse.position.copy(anchor)
+        pulse.scale.setScalar(size)
+        pulse.renderOrder = 3
+        group.add(pulse)
       }
+
+      markers.push({ territory, anchor: anchor.clone(), sprite: marker, pulse, size, scale: 1 })
     })
 
     const openedTerritories = territories.filter((territory) => territory.state === 'arrived')
-    const routeOrigin = openedTerritories[0]
+    const routeOrigin = openedTerritories.find((territory) => territory.id === homeCityID) ?? openedTerritories[0]
     if (routeOrigin) {
-      openedTerritories.slice(1).forEach((territory) => {
+      openedTerritories.filter((territory) => territory.id !== routeOrigin.id).forEach((territory) => {
         const start = globePoint(routeOrigin.latitude, routeOrigin.longitude, GLOBE_RADIUS + 0.045)
         const end = globePoint(territory.latitude, territory.longitude, GLOBE_RADIUS + 0.045)
         const midpoint = start.clone().add(end).multiplyScalar(0.5).normalize().multiplyScalar(GLOBE_RADIUS + 0.55)
@@ -311,9 +400,9 @@ export function Globe({ territories, onSelect, reduceMotion = false }: GlobeProp
       },
     }
 
-    const markerAt = (clientX: number, clientY: number) => {
+    const markersAt = (clientX: number, clientY: number) => {
       const bounds = renderer.domElement.getBoundingClientRect()
-      if (!bounds.width || !bounds.height) return null
+      if (!bounds.width || !bounds.height) return []
 
       const localX = clientX - bounds.left
       const localY = clientY - bounds.top
@@ -321,8 +410,7 @@ export function Globe({ territories, onSelect, reduceMotion = false }: GlobeProp
       cameraDirection.copy(camera.position).normalize()
       group.updateMatrixWorld()
 
-      let closest: HoveredMarker | null = null
-      let closestDistance = PICK_RADIUS
+      const found: Array<HoveredMarker & { distance: number }> = []
 
       for (const { territory, anchor } of markers) {
         worldPosition.copy(anchor).applyMatrix4(group.matrixWorld)
@@ -332,10 +420,9 @@ export function Globe({ territories, onSelect, reduceMotion = false }: GlobeProp
         const screenX = (projected.x + 1) / 2 * bounds.width
         const screenY = (1 - projected.y) / 2 * bounds.height
         const distance = Math.hypot(screenX - localX, screenY - localY)
-        if (distance >= closestDistance) continue
+        if (distance >= PICK_RADIUS) continue
 
-        closestDistance = distance
-        closest = {
+        found.push({
           id: territory.id,
           name: territory.name,
           region: territory.region,
@@ -345,17 +432,21 @@ export function Globe({ territories, onSelect, reduceMotion = false }: GlobeProp
           promoPercent: territory.promo_percent ?? 0,
           x: screenX,
           y: screenY,
-        }
+          distance,
+        })
       }
 
-      return closest
+      return found.sort((left, right) => left.distance - right.distance)
     }
+
+    const markerAt = (clientX: number, clientY: number) => markersAt(clientX, clientY)[0] ?? null
 
     const handlePointerDown = (event: PointerEvent) => {
       activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY })
       dragDistance = 0
       pinchDistance = activePointers.size === 2 ? pointerSpread() : 0
       clearHover()
+      setCluster(null)
       renderer.domElement.setPointerCapture(event.pointerId)
     }
 
@@ -400,11 +491,17 @@ export function Globe({ territories, onSelect, reduceMotion = false }: GlobeProp
 
       if (wasPinching || dragDistance >= TAP_TOLERANCE) return
 
-      const found = markerAt(event.clientX, event.clientY)
-      if (found) {
-        const territory = territories.find((item) => item.id === found.id)
-        if (territory) onSelect(territory)
+      const found = markersAt(event.clientX, event.clientY)
+      if (found.length === 0) return
+
+      if (found.length > 1) {
+        setCluster({ x: found[0].x, y: found[0].y, items: found })
+
+        return
       }
+
+      const territory = territories.find((item) => item.id === found[0].id)
+      if (territory) onSelect(territory)
     }
 
     const handlePointerCancel = (event: PointerEvent) => {
@@ -439,21 +536,29 @@ export function Globe({ territories, onSelect, reduceMotion = false }: GlobeProp
       group.rotation.set(view.pitch, view.yaw, 0)
       camera.position.z = view.distance
 
-      const zoomScale = THREE.MathUtils.clamp(
-        view.distance / REFERENCE_DISTANCE,
-        MIN_MARKER_SCALE,
-        MAX_MARKER_SCALE,
-      )
+      // Размер точки следует за дистанцией камеры, поэтому на экране она остаётся одинаковой,
+      // а при приближении перестаёт закрывать карту.
+      const zoomScale = Math.min(view.distance / REFERENCE_DISTANCE, MAX_MARKER_SCALE)
 
-      pulsingMarkers.forEach((marker, index) => {
-        const pulse = reduceMotion ? 1 : 1 + Math.sin(elapsed * 2.6 + index * 0.17) * 0.2
-        marker.scale.setScalar(pulse * zoomScale)
-      })
-
-      markers.forEach((marker) => {
-        const wanted = marker.territory.id === hoveredID.current ? 1.9 : 1
+      markers.forEach((marker, index) => {
+        const wanted = marker.territory.id === hoveredID.current ? MARKER_HOVER_SCALE : 1
         marker.scale += (wanted - marker.scale) * 0.2
-        marker.mesh.scale.setScalar(marker.scale * zoomScale)
+
+        const size = marker.size * marker.scale * zoomScale
+        marker.sprite.scale.setScalar(size)
+
+        if (!marker.pulse) return
+
+        if (reduceMotion) {
+          marker.pulse.scale.setScalar(size * 1.5)
+          marker.pulse.material.opacity = PULSE_OPACITY * 0.5
+
+          return
+        }
+
+        const phase = ((elapsed + index * 0.21) % PULSE_PERIOD) / PULSE_PERIOD
+        marker.pulse.scale.setScalar(size * (1 + phase * PULSE_SPREAD))
+        marker.pulse.material.opacity = PULSE_OPACITY * (1 - phase)
       })
 
       renderer.render(scene, camera)
@@ -482,7 +587,15 @@ export function Globe({ territories, onSelect, reduceMotion = false }: GlobeProp
       renderer.domElement.removeEventListener('pointerleave', handlePointerLeave)
       renderer.domElement.removeEventListener('wheel', handleWheel)
       loadedTextures.forEach((texture) => texture.dispose())
+      dot?.dispose()
+      ring?.dispose()
       scene.traverse((object) => {
+        if (object instanceof THREE.Sprite) {
+          object.material.dispose()
+
+          return
+        }
+
         if (object instanceof THREE.Mesh || object instanceof THREE.Line) {
           object.geometry.dispose()
           if (Array.isArray(object.material)) object.material.forEach((material) => material.dispose())
@@ -492,7 +605,7 @@ export function Globe({ territories, onSelect, reduceMotion = false }: GlobeProp
       renderer.dispose()
       root.replaceChildren()
     }
-  }, [clearHover, onSelect, reduceMotion, territories])
+  }, [clearHover, homeCityID, onSelect, reduceMotion, territories])
 
   if (fallback) {
     return (
@@ -516,7 +629,7 @@ export function Globe({ territories, onSelect, reduceMotion = false }: GlobeProp
         role="img"
         aria-label="Глобус с городами. Перетаскивание и кнопки управления вращают глобус, щипок или колесо меняют масштаб. Для выбора с клавиатуры используйте кнопку «Города»."
       />
-      {hovered && (
+      {hovered && !cluster && (
         <div className="globe-tooltip" style={{ left: hovered.x, top: hovered.y }} aria-hidden="true">
           <strong>{hovered.name}</strong>
           <span>{hovered.region}</span>
@@ -528,6 +641,38 @@ export function Globe({ territories, onSelect, reduceMotion = false }: GlobeProp
             <em className={hovered.state}>{stateLabels[hovered.state]}</em>
           )}
           {hovered.promoPercent > 0 && <b>Промокод −{hovered.promoPercent}% на билеты</b>}
+        </div>
+      )}
+      {cluster && (
+        <div
+          className="globe-cluster"
+          style={{ left: cluster.x, top: cluster.y }}
+          role="group"
+          aria-label="Города рядом"
+        >
+          <header>
+            <strong>Города рядом</strong>
+            <button type="button" onClick={() => setCluster(null)} aria-label="Закрыть список">
+              <X aria-hidden="true" />
+            </button>
+          </header>
+          {cluster.items.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => {
+                const territory = territories.find((candidate) => candidate.id === item.id)
+                setCluster(null)
+                if (territory) onSelect(territory)
+              }}
+            >
+              <span className={`state-dot ${item.popular ? 'has-events' : item.state}`} aria-hidden="true" />
+              <span>
+                <strong>{item.name}</strong>
+                <small>{item.region}</small>
+              </span>
+            </button>
+          ))}
         </div>
       )}
       <div className="globe-controls" role="group" aria-label="Управление камерой">

@@ -1,10 +1,10 @@
 import { useEffect } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../api'
 import { AppNav } from '../../components/AppNav'
 import { ErrorState, LoadingState } from '../../components/States'
 import { useApp } from '../../state'
-import type { Bootstrap, PublicSettings, User } from '../../types'
+import type { Bootstrap, CityEventsResponse, PublicSettings, User } from '../../types'
 import { CommunityView } from '../community/CommunityView'
 import { ProfileView } from '../profile/ProfileView'
 import { SearchSheet } from '../recommendations/SearchSheet'
@@ -21,6 +21,27 @@ export function WorldApp({ user, settings }: { user: User; settings: PublicSetti
   })
 
   useEffect(() => { if (bootstrap.data) setBootstrap(bootstrap.data) }, [bootstrap.data, setBootstrap])
+
+  const queryClient = useQueryClient()
+
+  useEffect(() => {
+    if (!bootstrap.data) {
+      return
+    }
+
+    const cityIDs = [
+      ...(bootstrap.data.personal_recommendation?.options ?? []).map((option) => option.city_id),
+      bootstrap.data.user.home_city_id,
+    ].filter(Boolean)
+
+    for (const cityID of new Set(cityIDs)) {
+      queryClient.prefetchQuery({
+        queryKey: ['events', cityID],
+        queryFn: () => api<CityEventsResponse>(`/territories/${cityID}/events`),
+        staleTime: 60 * 1000,
+      })
+    }
+  }, [bootstrap.data, queryClient])
 
   return (
     <div className="app-shell">

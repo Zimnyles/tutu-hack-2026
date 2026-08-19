@@ -3,6 +3,7 @@ import { useMutation } from '@tanstack/react-query'
 import { ArrowRight, Eye, EyeOff, LoaderCircle, LockKeyhole, Mail } from 'lucide-react'
 import { api } from '../../api'
 import { Logo } from '../../components/Logo'
+import { WorldMark } from '../../components/WorldMark'
 import type { User } from '../../types'
 
 type Mode = 'login' | 'register'
@@ -34,11 +35,7 @@ export function AuthScreen({ onAuthenticated }: { onAuthenticated: () => void })
       <section className="auth-art">
         <Logo inverse />
         <div className="auth-orbit">
-          <div className="mini-world">
-            <span className="land land-one" />
-            <span className="land land-two" />
-            <span className="pin-dot" />
-          </div>
+          <WorldMark className="mini-world" />
           <strong>Открывайте Россию<br />город за городом</strong>
         </div>
         <div className="auth-color-line"><span /><span /><span /><span /></div>

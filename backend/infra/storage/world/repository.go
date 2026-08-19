@@ -66,7 +66,45 @@ func (r *Repository) Settings(ctx context.Context) (domain.PublicSettings, error
 
 	settings.HomeCities = homeCities
 
+	badges, err := r.badgeCatalog(ctx)
+	if err != nil {
+		return domain.PublicSettings{}, err
+	}
+
+	settings.Badges = badges
+
 	return settings, nil
+}
+
+func (r *Repository) badgeCatalog(ctx context.Context) ([]domain.BadgeDefinition, error) {
+	rows, err := r.database.Query(
+		ctx,
+		`SELECT label, group_label, icon, related
+		 FROM badge_catalog
+		 WHERE active
+		 ORDER BY sort_order, label`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query badge catalog: %w", err)
+	}
+	defer rows.Close()
+
+	badges := make([]domain.BadgeDefinition, 0)
+
+	for rows.Next() {
+		var badge domain.BadgeDefinition
+		if err := rows.Scan(&badge.Label, &badge.Group, &badge.Icon, &badge.Related); err != nil {
+			return nil, fmt.Errorf("scan badge definition: %w", err)
+		}
+
+		badges = append(badges, badge)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate badge catalog: %w", err)
+	}
+
+	return badges, nil
 }
 
 func (r *Repository) TerritoriesFor(
@@ -81,13 +119,17 @@ func (r *Repository) TerritoriesFor(
 			ST_Y(territory.centroid::geometry),
 			ST_X(territory.centroid::geometry),
 			CASE
-				WHEN visit.id IS NOT NULL THEN 'arrived'
+				WHEN visit.id IS NOT NULL OR territory.id = account.home_city_id THEN 'arrived'
 				WHEN planned.city_id IS NOT NULL THEN 'planned'
 				WHEN territory.tags && preferences.themes THEN 'suggested'
 				ELSE 'locked'
 			END,
-			COALESCE(visit.level, 0),
+			GREATEST(
+				COALESCE(visit.level, 0),
+				CASE WHEN territory.id = account.home_city_id THEN 1 ELSE 0 END
+			),
 			territory.tags,
+			territory.badges,
 			territory.rarity,
 			territory.reward,
 			territory.promo_percent,
@@ -100,6 +142,7 @@ func (r *Repository) TerritoriesFor(
 			territory.commercial_priority
 		FROM territories territory
 		JOIN user_preferences preferences ON preferences.user_id = $1
+		JOIN users account ON account.id = $1
 		LEFT JOIN LATERAL (
 			SELECT id, level
 			FROM user_visits
@@ -125,7 +168,8 @@ func (r *Repository) TerritoriesFor(
 			WHERE event.city_id = territory.id
 			  AND event.status = 'active'
 			  AND event.trust_status IN ('verified', 'ai_web_search')
-			  AND event.availability IN ('available', 'limited')
+			  AND NOT event.is_demo
+			  AND event.availability <> 'sold_out'
 			  AND event.starts_at >= now()
 			  AND event.starts_at < now() + interval '30 days'
 			  AND event.expires_at > now()
@@ -170,12 +214,16 @@ func (r *Repository) Territory(
 			ST_Y(territory.centroid::geometry),
 			ST_X(territory.centroid::geometry),
 			CASE
-				WHEN visit.id IS NOT NULL THEN 'arrived'
+				WHEN visit.id IS NOT NULL OR territory.id = account.home_city_id THEN 'arrived'
 				WHEN territory.tags && preferences.themes THEN 'suggested'
 				ELSE 'locked'
 			END,
-			COALESCE(visit.level, 0),
+			GREATEST(
+				COALESCE(visit.level, 0),
+				CASE WHEN territory.id = account.home_city_id THEN 1 ELSE 0 END
+			),
 			territory.tags,
+			territory.badges,
 			territory.rarity,
 			territory.reward,
 			territory.promo_percent,
@@ -188,6 +236,7 @@ func (r *Repository) Territory(
 			territory.commercial_priority
 		FROM territories territory
 		JOIN user_preferences preferences ON preferences.user_id = $1
+		JOIN users account ON account.id = $1
 		LEFT JOIN LATERAL (
 			SELECT id, level
 			FROM user_visits
@@ -204,7 +253,8 @@ func (r *Repository) Territory(
 			WHERE event.city_id = territory.id
 			  AND event.status = 'active'
 			  AND event.trust_status IN ('verified', 'ai_web_search')
-			  AND event.availability IN ('available', 'limited')
+			  AND NOT event.is_demo
+			  AND event.availability <> 'sold_out'
 			  AND event.starts_at >= now()
 			  AND event.starts_at < now() + interval '30 days'
 			  AND event.expires_at > now()
@@ -482,6 +532,7 @@ func scanTerritory(row rowScanner) (domain.Territory, error) {
 		&territory.State,
 		&territory.Level,
 		&territory.Tags,
+		&territory.Badges,
 		&territory.Rarity,
 		&territory.Reward,
 		&territory.PromoPercent,

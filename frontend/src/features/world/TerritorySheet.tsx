@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowRight, Clock, ExternalLink, MapPin, Sparkles, TicketPercent, TrainFront, Users, X } from 'lucide-react'
 import { api } from '../../api'
+import { CityBadges } from '../../components/CityBadges'
 import { CityPhoto } from '../../components/CityPhoto'
 import { EmptyState, ErrorState, LoadingState } from '../../components/States'
 import { contentLabel, eventAvailability, formatDate, formatMoney } from '../../shared/format'
@@ -67,7 +68,8 @@ export function TerritorySheet({ territory, onClose }: { territory: Territory; o
             <span>{territory.region}</span>
             <h2>{territory.name}</h2>
             <div className="territory-tags">
-              {territory.tags.slice(0, 3).map((tag) => <span key={tag}>{contentLabel(tag)}</span>)}
+              {(territory.badges.length > 0 ? territory.badges.slice(0, 3) : territory.tags.slice(0, 3).map(contentLabel))
+                .map((tag) => <span key={tag}>{tag}</span>)}
             </div>
           </div>
         </header>
@@ -92,6 +94,12 @@ export function TerritorySheet({ territory, onClose }: { territory: Territory; o
           {tab === 'overview' && (
             <div className="city-overview">
               <p>{territory.description}</p>
+              {territory.badges.length > 0 && (
+                <section className="badge-block" aria-label="Чем известен город">
+                  <h3>Чем известен город</h3>
+                  <CityBadges badges={territory.badges} />
+                </section>
+              )}
               <div className="city-facts">
                 <div><Sparkles aria-hidden="true" /><span><strong>+{territory.reward}</strong> баллов за открытие</span></div>
                 <div><MapPin aria-hidden="true" /><span><strong>{territory.rarity}/10</strong> редкость города</span></div>
@@ -134,7 +142,9 @@ export function TerritorySheet({ territory, onClose }: { territory: Territory; o
                   <div className="event-body">
                     <div className="event-badges">
                       <span>{contentLabel(event.category)}</span>
-                      {event.availability !== 'available' && <span className="warning">{eventAvailability(event.availability)}</span>}
+                      {eventAvailability(event.availability) && event.availability !== 'available' && (
+                        <span className="warning">{eventAvailability(event.availability)}</span>
+                      )}
                     </div>
                     <h3>{event.title}</h3>
                     <p>

@@ -255,6 +255,7 @@ func (r *Repository) Candidates(
 			'suggested',
 			0,
 			territory.tags,
+			territory.badges,
 			territory.rarity,
 			territory.reward,
 			territory.description,
@@ -266,13 +267,21 @@ func (r *Repository) Candidates(
 		  AND ($2 = '' OR territory.id = NULLIF($2, '')::uuid)
 		  AND (
 			$2 <> ''
-			OR NOT EXISTS (
-				SELECT 1
-				FROM user_visits visit
-				WHERE visit.user_id = $1 AND visit.territory_id = territory.id
+			OR (
+				territory.id IS DISTINCT FROM NULLIF($5, '')::uuid
+				AND NOT EXISTS (
+					SELECT 1
+					FROM user_visits visit
+					WHERE visit.user_id = $1 AND visit.territory_id = territory.id
+				)
 			)
 		  )
 		ORDER BY
+			cardinality(ARRAY(
+				SELECT unnest(territory.badges)
+				INTERSECT
+				SELECT unnest($4::text[])
+			)) DESC,
 			cardinality(ARRAY(
 				SELECT unnest(territory.tags)
 				INTERSECT
@@ -288,6 +297,8 @@ func (r *Repository) Candidates(
 		user.ID,
 		recommendation.DestinationID,
 		user.Preferences.Themes,
+		domain.BadgesForThemes(user.Preferences.Themes),
+		recommendation.OriginCityID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("query recommendation candidates: %w", err)
@@ -543,6 +554,7 @@ func scanTerritory(row rowScanner) (domain.Territory, error) {
 		&territory.State,
 		&territory.Level,
 		&territory.Tags,
+		&territory.Badges,
 		&territory.Rarity,
 		&territory.Reward,
 		&territory.Description,

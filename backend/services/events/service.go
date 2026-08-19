@@ -26,8 +26,9 @@ const (
 	defaultCityLimit        = 10
 	defaultPopularLimit     = 12
 	defaultPopularCityPool  = 120
-	defaultWindowDays       = 60
-	defaultDiscoverySlots   = 3
+	defaultWindowDays       = 30
+	defaultPrewarmCities    = 250
+	defaultDiscoverySlots   = 6
 	minimumDiscoverySlots   = 1
 	minimumDiscoveryTimeout = time.Minute
 )
@@ -40,6 +41,7 @@ type Config struct {
 	CityLimit        int
 	PopularLimit     int
 	PopularCityPool  int
+	PrewarmCities    int
 	WindowDays       int
 	Concurrency      int
 }
@@ -93,6 +95,10 @@ func withDefaults(config Config) Config {
 
 	if config.PopularLimit <= 0 {
 		config.PopularLimit = defaultPopularLimit
+	}
+
+	if config.PrewarmCities < 0 {
+		config.PrewarmCities = defaultPrewarmCities
 	}
 
 	if config.PopularCityPool <= 0 {
