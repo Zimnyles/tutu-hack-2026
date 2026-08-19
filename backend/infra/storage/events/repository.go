@@ -359,7 +359,7 @@ func (r *Repository) PopularEvents(ctx context.Context, limit int) ([]domain.Eve
 		  AND event.status = 'active'
 		  AND event.ends_at > now()
 		  AND event.expires_at > now()
-		ORDER BY event.popularity_rank
+		ORDER BY event.starts_at, event.popularity_rank
 		LIMIT $1`
 
 	rows, err := r.database.Query(ctx, query, limit)

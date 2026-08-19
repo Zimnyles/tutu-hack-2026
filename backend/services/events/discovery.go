@@ -19,6 +19,7 @@ const (
 	prewarmPause    = 10 * time.Second
 	eventRetention  = 7
 	slotWaitTimeout = 60 * time.Second
+	popularBackoff  = 10 * time.Minute
 )
 
 type Listing struct {
@@ -242,7 +243,7 @@ func (s *Service) runDiscovery(
 			"error", err,
 			"duration", time.Since(started),
 		)
-		s.failDiscovery(runContext, scope, scopeKey, discoveryFailureCode(err), s.config.FailureBackoff)
+		s.failDiscovery(runContext, scope, scopeKey, discoveryFailureCode(err), s.failureBackoff(scope))
 
 		return
 	}
@@ -287,6 +288,14 @@ func (s *Service) failDiscovery(
 	); err != nil {
 		s.logger.Warn("mark event discovery failed", "scope", scope, "key", scopeKey, "error", err)
 	}
+}
+
+func (s *Service) failureBackoff(scope string) time.Duration {
+	if scope == countryScope && s.config.FailureBackoff > popularBackoff {
+		return popularBackoff
+	}
+
+	return s.config.FailureBackoff
 }
 
 func (s *Service) acquireSlot(ctx context.Context) bool {

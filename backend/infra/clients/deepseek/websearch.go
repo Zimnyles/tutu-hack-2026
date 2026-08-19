@@ -85,7 +85,10 @@ func (c searchClient) search(ctx context.Context, payload searchRequest) (string
 		return "", fmt.Errorf("encode DeepSeek search request: %w", err)
 	}
 
-	var lastError error
+	var (
+		lastError   error
+		lastContent string
+	)
 
 	for attempt := 1; attempt <= searchAttempts; attempt++ {
 		content, err := c.attemptSearch(ctx, requestBody)
@@ -94,9 +97,10 @@ func (c searchClient) search(ctx context.Context, payload searchRequest) (string
 		}
 
 		lastError = err
+		lastContent = content
 
 		if !retryableError(err) || attempt == searchAttempts {
-			return "", lastError
+			return lastContent, lastError
 		}
 
 		select {
@@ -106,7 +110,7 @@ func (c searchClient) search(ctx context.Context, payload searchRequest) (string
 		}
 	}
 
-	return "", lastError
+	return lastContent, lastError
 }
 
 func (c searchClient) attemptSearch(ctx context.Context, requestBody []byte) (string, error) {
@@ -153,15 +157,16 @@ func (c searchClient) attemptSearch(ctx context.Context, requestBody []byte) (st
 		return "", fmt.Errorf("%w: %s: %s", ai_errors.ErrProviderFailure, result.Error.Code, result.Error.Message)
 	}
 
+	content := sanitizeContent(searchMessageText(result))
+
 	if result.IncompleteDetails != nil {
-		return "", fmt.Errorf("%w: %s", ai_errors.ErrTruncatedCompletion, result.IncompleteDetails.Reason)
+		return content, fmt.Errorf("%w: %s", ai_errors.ErrTruncatedCompletion, result.IncompleteDetails.Reason)
 	}
 
 	if result.Status == "incomplete" {
-		return "", fmt.Errorf("%w: incomplete response", ai_errors.ErrTruncatedCompletion)
+		return content, fmt.Errorf("%w: incomplete response", ai_errors.ErrTruncatedCompletion)
 	}
 
-	content := sanitizeContent(searchMessageText(result))
 	if content != "" {
 		return content, nil
 	}

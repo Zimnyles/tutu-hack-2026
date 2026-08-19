@@ -14,9 +14,9 @@ import (
 
 const (
 	discoveryCityTokens     = 6000
-	discoveryTopTokens      = 9000
+	discoveryTopTokens      = 24000
 	discoveryCityToolCalls  = 1
-	discoveryTopToolCalls   = 3
+	discoveryTopToolCalls   = 2
 	discoveryDefaultHours   = 3
 	maximumDiscoveredEvents = 40
 	maximumTitleRunes       = 160
@@ -167,7 +167,7 @@ func (d *EventDiscoverer) discover(
 	toolCalls int,
 	outputTokens int,
 ) ([]domain.DiscoveredEvent, error) {
-	content, err := d.transport.search(ctx, searchRequest{
+	content, searchError := d.transport.search(ctx, searchRequest{
 		Model: d.model,
 		Instructions: fmt.Sprintf(
 			"Составь афишу по результатам поиска. Сделай %d поиск(а) и сразу верни ответ. "+
@@ -180,21 +180,67 @@ func (d *EventDiscoverer) discover(
 		MaxOutputTokens: outputTokens,
 		MaxToolCalls:    toolCalls,
 	})
-	if err != nil {
-		return nil, fmt.Errorf("discover events: %w", err)
+	payloads, parseError := decodeDiscovery(content)
+	if len(payloads) == 0 {
+		if searchError != nil {
+			return nil, fmt.Errorf("discover events: %w", searchError)
+		}
+
+		if parseError != nil {
+			return nil, fmt.Errorf("%w: %w", ai_errors.ErrInvalidDiscovery, parseError)
+		}
 	}
 
-	var envelope discoveryEnvelope
-	if err := json.Unmarshal([]byte(discoveryJSON(content)), &envelope); err != nil {
-		return nil, fmt.Errorf("%w: %w", ai_errors.ErrInvalidDiscovery, err)
-	}
-
-	events := normalizeDiscovered(envelope.Events, dateFrom, dateTo, limit)
+	events := normalizeDiscovered(payloads, dateFrom, dateTo, limit)
 	if len(events) == 0 {
 		return nil, ai_errors.ErrEmptyDiscovery
 	}
 
 	return events, nil
+}
+
+func decodeDiscovery(content string) ([]discoveredEventPayload, error) {
+	trimmed := discoveryJSON(content)
+	if trimmed == "" {
+		return nil, nil
+	}
+
+	var envelope discoveryEnvelope
+	if err := json.Unmarshal([]byte(trimmed), &envelope); err == nil {
+		return envelope.Events, nil
+	}
+
+	payloads := salvageDiscovery(trimmed)
+	if len(payloads) == 0 {
+		return nil, json.Unmarshal([]byte(trimmed), &envelope)
+	}
+
+	return payloads, nil
+}
+
+func salvageDiscovery(content string) []discoveredEventPayload {
+	start := strings.Index(content, "[")
+	if start < 0 {
+		return nil
+	}
+
+	payloads := make([]discoveredEventPayload, 0, maximumDiscoveredEvents)
+	decoder := json.NewDecoder(strings.NewReader(content[start:]))
+
+	if _, err := decoder.Token(); err != nil {
+		return nil
+	}
+
+	for decoder.More() {
+		var payload discoveredEventPayload
+		if err := decoder.Decode(&payload); err != nil {
+			break
+		}
+
+		payloads = append(payloads, payload)
+	}
+
+	return payloads
 }
 
 func normalizeDiscovered(

@@ -193,15 +193,18 @@ function PopularEvents({ onOpenCity }: { onOpenCity: (cityID: string) => void })
   const popular = useQuery({
     queryKey: ['popular-events'],
     queryFn: () => api<PopularEventsResponse>('/events/popular'),
-    refetchInterval: (query) => (query.state.data?.discovering ? 8000 : false),
+    refetchInterval: (query) => {
+      if (query.state.data?.discovering) {
+        return 8000
+      }
+
+      return (query.state.data?.items.length ?? 0) === 0 ? 60000 : false
+    },
     staleTime: 5 * 60 * 1000,
   })
 
   const items = popular.data?.items ?? []
-
-  if (items.length === 0 && !popular.data?.discovering) {
-    return null
-  }
+  const searching = popular.isPending || Boolean(popular.data?.discovering)
 
   return (
     <section className="popular-events" aria-label="Популярные события России">
@@ -211,7 +214,9 @@ function PopularEvents({ onOpenCity }: { onOpenCity: (cityID: string) => void })
       </header>
       {items.length === 0 ? (
         <p className="popular-events-empty" role="status" aria-live="polite">
-          Нейросеть подбирает главные события месяца.
+          {searching
+            ? 'Нейросеть подбирает главные события месяца.'
+            : 'Подборка пока пуста, обновим её автоматически.'}
         </p>
       ) : (
         <ul>
